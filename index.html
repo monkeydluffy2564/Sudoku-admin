@@ -1,0 +1,1382 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Sudoku 4×4 - แข่งขันหลายคน</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    :root{
+      --bg:#ffffff; --ink:#4b6b88; --ink-soft:#7ca7c8;
+      --tile-bg:#ffffff; --tile-border:#cfefff; --num:#2b6cb0;
+      --card-bg:#e9f6ff; --card-border:#9fd7ff; --card-ink:#2f7fb2;
+      --accent:#2c77ff; --shadow:0 6px 16px rgba(43,119,255,.12);
+      --select-ring: rgba(44,119,255,.45);
+      --select-bg: #f5faff;
+      --podium-1: #ffd700; --podium-2: #c0c0c0; --podium-3: #cd7f32;
+      --conflict:#ef4444; --given:#0ea5e9; --ok:#22c55e;
+      --hl:#fde68a; /* highlight row/col/subgrid */
+    }
+    :root[data-theme="pastel"]{ }
+    :root[data-theme="chalk"]{
+      --bg:#0c241a; --ink:#eaf7e0; --ink-soft:#bfe8c2; --tile-bg:#17382b; --tile-border:#2d6b52; --num:#eaf7e0;
+      --card-bg:#133529; --card-border:#5cbf98; --card-ink:#d7ffe9; --accent:#87e7b2; --select-ring:#87e7b2; --select-bg:#0e392c;
+      --hl:#254b3a; --conflict:#ff7f9f; --given:#3bcf7b; --ok:#a7f3d0;
+    }
+    :root[data-theme="blocks"]{
+      --bg:#fbfbfb; --ink:#2b2b2b; --ink-soft:#6a6a6a; --tile-bg:#ffffff; --tile-border:#e6e6e6; --num:#2d7ef7;
+      --card-bg:#f3f7ff; --card-border:#bcd7ff; --card-ink:#2d7ef7; --accent:#2d7ef7; --select-ring:#2d7ef7; --select-bg:#eef6ff;
+      --hl:#eef2ff; --conflict:#ef4444; --given:#1d4ed8; --ok:#22c55e;
+    }
+    :root[data-theme="contrast"]{
+      --bg:#ffffff; --ink:#111111; --ink-soft:#cccccc; --tile-bg:#ffffff; --tile-border:#000000; --num:#000000;
+      --card-bg:#ffffff; --card-border:#000000; --card-ink:#000000; --accent:#006CFF; --select-ring:#006CFF; --select-bg:#E8F0FF;
+      --hl:#f0f0f0; --conflict:#b91c1c; --given:#111; --ok:#16a34a;
+    }
+    :root[data-theme="neon"]{
+      --bg: radial-gradient(1200px 800px at 30% 10%, #0d1b2a 0%, #000 70%);
+      --ink:#d1e8ff; --ink-soft:#9cc9ff; --tile-bg:#0f2033; --tile-border:#1f3b5b; --num:#9ce6ff;
+      --card-bg:#0e2238; --card-border:#00e5ff; --card-ink:#9ce6ff; --accent:#00e5ff; --select-ring:#00e5ff; --select-bg:#0a2942;
+      --hl:#0f3653; --conflict:#ff2d95; --given:#ffc300; --ok:#00e5ff;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%; font-size:16px;}
+    body{margin:0; background:var(--bg); color:var(--ink); font-family:"Kanit",system-ui,sans-serif; overflow-x:hidden;}
+    .center-container{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:1rem;}
+    .toast{visibility:hidden;min-width:250px;background:#333;color:#fff;text-align:center;border-radius:8px;padding:16px;position:fixed;z-index:100;left:50%;transform:translateX(-50%);bottom:30px;opacity:0;transition:opacity .3s,visibility .3s}
+    .toast.show{visibility:visible;opacity:1}
+
+    .app{display:grid;grid-template-columns:1fr;gap:1.5rem;width:100%;max-width:1200px;height:auto;min-height:100%;padding:1rem;margin:0 auto;}
+    .main-game{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;}
+
+    .game-header{display:flex;justify-content:space-between;align-items:flex-start;width:100%;max-width:550px;margin-bottom:1rem;}
+    .header-left,.header-right{flex:1;display:flex;flex-direction:column;gap:.5rem}
+    .header-left{align-items:flex-start}.header-right{align-items:flex-end}
+    .header-center{flex:1.5;text-align:center}
+    .icon-btn-group{display:flex;gap:.5rem}
+    .icon-btn{background:var(--tile-bg);border:2px solid var(--tile-border);color:var(--ink-soft);width:44px;height:44px;border-radius:.5rem;cursor:pointer;font-size:1.25rem;transition:all .2s}
+    .icon-btn:hover{border-color:var(--accent);color:var(--accent)}
+    #player-score-display{font-weight:600;font-size:1rem;color:var(--ink)}
+    #puzzle-progress{font-weight:600;font-size:1rem;color:var(--accent)}
+    .target-box{background:var(--accent);color:#fff;padding:.5rem 1rem;border-radius:.75rem;display:inline-block;margin-bottom:.5rem}
+    .target-box .target-label{font-size:.875rem;opacity:.9}
+    .target-box .target-number{font-size:1.25rem;font-weight:700;line-height:1}
+    #game-timer{font-size:1.25rem;font-weight:600;color:var(--ink)}
+
+    #game-board {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      flex-grow: 0; /* Prevent flexbox from stretching this container */
+    }
+
+    .sudoku {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      margin: 1rem auto;
+      width: min(90vmin, 400px);
+      aspect-ratio: 1 / 1; 
+      border: 3px solid var(--ink, #111);
+      border-radius: .75rem;
+      overflow: hidden;
+    }
+
+    .cell {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--tile-bg);
+      border-right: 1px solid var(--ink-soft, #ccc);
+      border-bottom: 1px solid var(--ink-soft, #ccc);
+      border-radius: 0;
+      font-weight: 700;
+      color: var(--num);
+      font-size: clamp(1.5rem, 12vmin, 2.5rem);
+      cursor: pointer;
+      user-select: none;
+      transition: box-shadow .15s, background .15s;
+      aspect-ratio: 1 / 1;
+    }
+
+    .cell:nth-child(4n) { border-right: none; }
+    .cell:nth-child(n+13) { border-bottom: none; }
+
+    .cell.given {
+      color: var(--given);
+      cursor: default;
+    }
+    .cell.selected {
+      box-shadow: 0 0 0 4px var(--select-ring);
+      background: var(--select-bg);
+      position: relative;
+      z-index: 10;
+    }
+    .cell.hl {
+      background: var(--hl);
+    }
+    .cell.conflict { background-color: #fee2e2; }
+    .cell.ok { background-color: #dcfce7; }
+    .cell.hl.conflict { background-color: #fecaca; }
+    .cell.hl.ok { background-color: #bbf7d0; }
+
+    .cell .tiny {
+      font-size: 1rem;
+      opacity: .6;
+    }
+
+    .bR {
+      border-right: 3px solid var(--ink, #111);
+    }
+    .bB {
+      border-bottom: 3px solid var(--ink, #111);
+    }
+
+    .picker{display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center}
+    .pick{width:56px;height:56px;border-radius:.75rem;background:var(--tile-bg);border:2px solid var(--tile-border);font-weight:900;font-size:1.5rem;color:var(--ink);cursor:pointer;transition:.15s}
+    .pick:hover{border-color:var(--accent)}
+    .pick.erase{font-size:1.1rem}
+
+    .sidebar{background:var(--card-bg);border:2px solid var(--card-border);border-radius:1rem;padding:1rem;display:flex;flex-direction:column;order:-1}
+    .leaderboard h3{color:var(--card-ink);font-weight:700;font-size:1.25rem;border-bottom:2px solid var(--card-border);padding-bottom:.5rem;margin-bottom:.75rem}
+    .player-row{display:grid;grid-template-columns:1fr auto;align-items:center;padding:.5rem;border-radius:.5rem;margin-bottom:.25rem}
+    .player-row.is-me{background-color:rgba(127,127,127,.2);border:1px solid var(--accent)}
+    .player-name{font-weight:600;color:var(--card-ink)}
+    .player-progress{font-weight:700;font-size:1rem;color:var(--accent);text-align:right}
+
+    .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:50;padding:1rem}
+    .modal-content{background:#fff;color:#1f2937;padding:1.5rem;border-radius:1rem;width:100%;max-width:460px;box-shadow:0 18px 42px rgba(0,0,0,.35);text-align:center}
+    #admin-settings-modal .modal-content{max-width:520px}
+    .modal-content h2{font-size:1.5rem;font-weight:700;margin-bottom:.5rem}
+    .modal-content p{color:#4b5563;margin-bottom:1rem}
+    .modal-content button:disabled{background:#9ca3af;cursor:not-allowed}
+    .modal-content input,.modal-content select{width:100%;padding:.75rem;border:1px solid #d1d5db;border-radius:.5rem;margin-bottom:1rem;text-align:center;font-size:1rem}
+    .modal-content button{width:100%;padding:.75rem 1rem;border-radius:.5rem;border:0;font-weight:700;cursor:pointer;background:#4f46e5;color:white;transition:background-color .2s}
+    .modal-content button:hover:not(:disabled){background:#4338ca}
+    .modal-content .secondary-action{background:#e5e7eb;color:#374151;margin-top:.5rem}
+    .modal-content .secondary-action:hover:not(:disabled){background:#d1d5db}
+
+    .host-controls{margin-top:auto;padding-top:1rem;border-top:2px solid var(--card-border)}
+    .host-controls button{width:100%;padding:.75rem;border-radius:.5rem;border:0;font-weight:700;cursor:pointer;background:var(--accent);color:white}
+
+    .admin-lobby-container{text-align:center;padding:1.25rem}
+    #game-code-display{font-size:clamp(3rem,20vw,5rem);font-weight:bold;color:var(--accent);letter-spacing:clamp(.25rem,2vw,.625rem);background:var(--card-bg);padding:1.25rem 2.5rem;border-radius:1.25rem;border:4px solid var(--card-border);margin:1.25rem 0;display:inline-block}
+    .player-lobby-box{background:rgba(127,127,127,.1);border-radius:1rem;padding:1rem 1.5rem;width:100%;max-width:450px;margin:1rem auto}
+    .player-lobby-box h3{font-size:1.125rem;font-weight:600;margin-bottom:1rem}
+    #lobby-player-name-list{display:flex;flex-wrap:wrap;justify-content:center;gap:.75rem;min-height:40px}
+    .lobby-player-tag{background:var(--card-bg);color:var(--card-ink);padding:.5rem 1.25rem;border-radius:9999px;font-weight:500;border:1px solid var(--card-border)}
+
+    #game-over-view{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:1rem}
+    .results-container{width:100%;max-width:600px;text-align:center}
+    .results-container h2{font-size:1.75rem;font-weight:700;margin-bottom:2rem}
+    .podium{display:flex;align-items:flex-end;justify-content:center;gap:.5rem;height:250px;margin-bottom:2rem}
+    .podium-stand{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;color:var(--ink);padding-bottom:1rem;border-radius:.5rem .5rem 0 0;box-shadow:var(--shadow)}
+    .podium-stand .player-name{font-size:1.25rem;font-weight:600;margin-bottom:.25rem}
+    .podium-stand .player-score{font-size:1rem;font-weight:500}
+    .podium-stand .rank{font-size:2.5rem;font-weight:700;margin-top:.5rem}
+    .podium-1{order:2;height:100%;background:var(--podium-1)}
+    .podium-2{order:1;height:80%;background:var(--podium-2)}
+    .podium-3{order:3;height:65%;background:var(--podium-3)}
+    .podium-1 .fa-crown{color:#f9a825;font-size:2rem;margin-bottom:.5rem}
+    .other-rankings{margin-top:1rem;background:var(--card-bg);border:2px solid var(--card-border);border-radius:1rem;padding:1rem}
+    .other-rankings h3{font-size:1.25rem;font-weight:600;margin-bottom:.75rem}
+    #other-rankings-list{list-style:none;padding:0}
+    #other-rankings-list li{display:flex;justify-content:space-between;padding:.5rem;border-radius:.375rem}
+    #other-rankings-list li:nth-child(odd){background-color:rgba(127,127,127,.05)}
+
+    #admin-icon-btn{position:absolute;top:1rem;right:1rem;z-index:20;padding:.75rem;border-radius:9999px;color:var(--ink-soft);background:transparent;transition:.2s;border:none;cursor:pointer}
+    #admin-icon-btn:hover{background:rgba(127,127,127,.1);color:var(--ink)}
+    .loader{border:5px solid #f3f3f3;border-top:5px solid var(--accent);border-radius:50%;width:50px;height:50px;animation:spin 1s linear infinite}
+    @keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+    
+    body.player-view .sidebar{display:none}
+    body.player-view .app{
+        grid-template-columns: 1fr;
+        place-items: center;
+    }
+    body.player-view .main-game{justify-content:center}
+
+    .setting-group label{display:flex;align-items:center;justify-content:center;text-align:center;padding:.75rem;border:2px solid var(--tile-border);border-radius:.5rem;cursor:pointer;transition:.2s;min-height:50px}
+    .setting-group input[type="radio"]:checked+label{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+    .setting-group input[type="radio"]{display:none}
+
+    @media (min-width:900px){
+      .app{grid-template-columns:300px 1fr;height:auto;min-height:100%;padding:1.25rem}
+      body.player-view .app {
+        grid-template-columns: 1fr;
+      }
+      .sidebar{order:0}
+      .main-game{justify-content:center}
+      .app.sidebar-hidden {
+        grid-template-columns: 1fr;
+      }
+      .app.sidebar-hidden .sidebar {
+        display: none;
+      }
+    }
+    .hidden{display:none !important}
+  </style>
+</head>
+<body>
+
+  <button id="admin-icon-btn" title="ผู้ดูแลระบบ">
+    <i class="fas fa-user-shield fa-lg"></i>
+  </button>
+
+  <!-- Join -->
+  <div id="player-join-view" class="center-container">
+    <h1 class="text-5xl font-bold mb-4" style="color: var(--ink);">Sudoku Battle</h1>
+    <div class="w-full max-w-md flex flex-col items-center gap-4">
+        <!-- Join Competition Card -->
+        <div class="modal-content w-full">
+            <h2><i class="fas fa-users mr-2"></i>เข้าร่วมแข่งขัน</h2>
+            <p>ใส่รหัสเกมและชื่อเล่นของคุณ</p>
+            <input type="text" id="game-code-input" placeholder="รหัสเกม (2 หลัก)" maxlength="2" autocomplete="off" inputmode="numeric" pattern="[0-9]*">
+            <input type="text" id="player-name-input" placeholder="ชื่อเล่น" maxlength="15" autocomplete="nickname">
+            <button id="join-game-btn">เข้าร่วม</button>
+        </div>
+
+        <div class="text-center text-gray-500 my-1 font-semibold" style="color: var(--ink-soft);">หรือ</div>
+
+        <!-- Practice Mode Card -->
+        <div class="modal-content w-full">
+             <h2><i class="fas fa-user mr-2"></i>โหมดฝึกซ้อม</h2>
+             <p>เล่นคนเดียวเพื่อฝึกฝนทักษะ</p>
+             <button id="start-practice-btn" style="background-color: #16a34a;">เริ่มโหมดฝึกซ้อม</button>
+        </div>
+    </div>
+  </div>
+
+
+  <!-- Waiting -->
+  <div id="player-wait-view" class="hidden center-container">
+    <div class="modal-content">
+      <h2 class="text-2xl font-bold">เข้าร่วมสำเร็จ!</h2>
+      <p class="text-lg">กรุณารอผู้ควบคุมเริ่มเกมสักครู่...</p>
+      <div class="loader mt-4 mx-auto"></div>
+    </div>
+  </div>
+
+  <!-- Admin Login -->
+  <div id="admin-login-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <h2>เข้าสู่ระบบผู้ดูแล</h2>
+      <p>กรุณาใส่รหัสผ่าน</p>
+      <input type="password" id="admin-password-input" placeholder="รหัสผ่าน">
+      <button id="admin-login-btn">เข้าสู่ระบบ</button>
+      <button id="admin-back-btn" class="secondary-action">กลับ</button>
+    </div>
+  </div>
+
+  <!-- Lobby -->
+  <div id="admin-lobby-view" class="hidden center-container">
+    <div class="admin-lobby-container">
+      <h2 class="text-2xl font-semibold">เริ่มเกม: Sudoku 4×4</h2>
+      <p class="text-lg mt-2">ให้นักเรียนเข้าร่วมด้วยรหัสนี้:</p>
+      <div id="game-code-display">--</div>
+      <div class="player-lobby-box">
+        <h3>ผู้เล่นที่เข้าร่วม (<span id="lobby-player-count">0</span>)</h3>
+        <div id="lobby-player-name-list"></div>
+      </div>
+      <button id="open-settings-btn" class="mt-4 px-8 py-3 text-xl rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+        ตั้งค่าและเริ่มเกม
+      </button>
+    </div>
+  </div>
+
+  <!-- Admin Settings -->
+  <div id="admin-settings-modal" class="modal-overlay hidden">
+    <div class="modal-content">
+      <h2>ตั้งค่าเกม</h2>
+      <div class="space-y-4 my-4 text-left">
+        <!-- Difficulty -->
+        <div>
+          <h3 class="font-semibold mb-2 text-sm">ความยาก</h3>
+          <select id="difficulty-select">
+            <option value="easy">ง่าย</option>
+            <option value="medium" selected>ปานกลาง</option>
+            <option value="hard">ยาก</option>
+            <option value="mixed">โหมดผสม</option>
+          </select>
+        </div>
+        <!-- Competition Only Settings -->
+        <div id="competition-settings">
+          <div>
+            <h3 class="font-semibold mb-2 text-sm">รูปแบบการแสดงผลลัพธ์</h3>
+            <div class="setting-group grid grid-cols-2 gap-2">
+              <input type="radio" id="result-immediate" name="resultDisplayMode" value="immediate" checked>
+              <label for="result-immediate" class="text-sm">แสดงผลทันที</label>
+              <input type="radio" id="result-wait" name="resultDisplayMode" value="wait">
+              <label for="result-wait" class="text-sm">รอจนหมดเวลา</label>
+            </div>
+          </div>
+        </div>
+        <!-- Time Limit -->
+        <div>
+          <h3 class="font-semibold mb-2 text-sm">เวลาจำกัด (วินาที)</h3>
+          <input id="time-limit-input" type="number" min="10" max="1800" value="60" />
+        </div>
+      </div>
+      <button id="start-game-btn"><i class="fas fa-play mr-2"></i>เริ่มแข่งขัน</button>
+      <button id="cancel-settings-btn" class="secondary-action">ยกเลิก</button>
+    </div>
+  </div>
+
+  <!-- Game -->
+  <div id="game-view" class="app hidden">
+    <div class="sidebar">
+      <div class="theme-picker">
+        <label for="themeSelect">ธีม</label>
+        <select id="themeSelect" class="theme-select" aria-label="เลือกธีม">
+          <option value="contrast">ความคมชัดสูง</option>
+          <option value="pastel">พาสเทล</option>
+          <option value="chalk">กระดานดำ</option>
+          <option value="blocks">บล็อกสี</option>
+          <option value="neon">นีออน</option>
+        </select>
+      </div>
+      <div class="leaderboard flex-grow">
+        <h3>ผู้เล่นในห้อง</h3>
+        <div id="player-list"></div>
+      </div>
+      <div id="host-controls" class="host-controls hidden">
+        <button id="end-game-btn">บังคับจบเกม</button>
+      </div>
+    </div>
+    <div class="main-game">
+      <div class="game-header">
+        <div class="header-left">
+          <div class="icon-btn-group">
+            <button id="home-btn" class="icon-btn" title="ออกจากเกม"><i class="fas fa-home"></i></button>
+            <button id="reset-btn" class="icon-btn" title="เริ่มใหม่"><i class="fas fa-redo"></i></button>
+            <button id="toggle-sidebar-btn" class="icon-btn hidden" title="ซ่อน/แสดงผู้เล่น"><i class="fas fa-users"></i></button>
+          </div>
+          <div id="player-score-display" class="hidden">คะแนน: 0</div>
+        </div>
+        <div class="header-center">
+          <div class="target-box">
+            <div class="target-label">เป้าหมาย</div>
+            <div id="target-number-display" class="target-number">Sudoku 4×4</div>
+          </div>
+          <div id="game-timer">เวลา: 01:00</div>
+        </div>
+        <div class="header-right">
+          <div id="puzzle-progress">ความคืบหน้า</div>
+        </div>
+      </div>
+
+      <div id="game-board">
+        <!-- [SUDOKU] Grid -->
+        <div id="sudoku" class="sudoku"></div>
+        <!-- [SUDOKU] Number picker -->
+        <div class="picker mt-3" id="picker">
+          <button class="pick" data-n="1">1</button>
+          <button class="pick" data-n="2">2</button>
+          <button class="pick" data-n="3">3</button>
+          <button class="pick" data-n="4">4</button>
+          <button class="pick erase" data-n="0" title="ลบ"><i class="fa-solid fa-eraser"></i></button>
+        </div>
+      </div>
+
+      <div id="player-finished-view" class="hidden text-center">
+        <h2 class="text-2xl font-bold">เยี่ยมมาก!</h2>
+        <p class="text-lg">คุณไขปริศนาสำเร็จ</p>
+        <div id="practice-score-display" class="my-4">
+             <!-- Score will be injected here -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="game-over-view" class="hidden center-container">
+    <div class="results-container">
+      <h2 id="results-header"><i class="fas fa-trophy mr-2"></i>สรุปผล Sudoku!</h2>
+      <div class="podium" id="podium-container"></div>
+      <div class="other-rankings" id="other-rankings-container">
+        <h3>อันดับอื่นๆ</h3>
+        <ol id="other-rankings-list"></ol>
+      </div>
+      <button id="back-to-lobby-btn" class="mt-8 px-6 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300">กลับไปที่ล็อบบี้</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    // Firebase (unchanged)
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp, runTransaction, deleteDoc, deleteField, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyAJsk4l8I8uCYpJY8jZLAlRW1w2qLWN-2o",
+      authDomain: "game24-69666.firebaseapp.com",
+      projectId: "game24-69666",
+      storageBucket: "game24-69666.firebasestorage.app",
+      messagingSenderId: "989271279576",
+      appId: "1:989271279576:web:43115bbaeeae31160954ad",
+      measurementId: "G-B1ZTE90SGG"
+    };
+
+    // DOM helpers
+    const $ = s => document.querySelector(s);
+    const $$ = s => Array.from(document.querySelectorAll(s));
+
+    // Views
+    const playerJoinView = $('#player-join-view');
+    const playerWaitView = $('#player-wait-view');
+    const adminLobbyView = $('#admin-lobby-view');
+    const gameView = $('#game-view');
+    const adminLoginModal = $('#admin-login-modal');
+    const adminSettingsModal = $('#admin-settings-modal');
+    const gameOverView = $('#game-over-view');
+
+    // UI refs
+    const sudokuEl = $('#sudoku');
+    const pickerEl = $('#picker');
+    const playerList = $('#player-list');
+    const lobbyPlayerNameList = $('#lobby-player-name-list');
+    const lobbyPlayerCount = $('#lobby-player-count');
+    const hostControls = $('#host-controls');
+    const toastEl = $('#toast');
+    const gameCodeDisplay = $('#game-code-display');
+    const gameTimerEl = $('#game-timer');
+    const puzzleProgressEl = $('#puzzle-progress');
+    const playerScoreDisplay = $('#player-score-display');
+    const gameBoard = $('#game-board');
+    const playerFinishedView = $('#player-finished-view');
+    const podiumContainer = $('#podium-container');
+    const otherRankingsList = $('#other-rankings-list');
+    const otherRankingsContainer = $('#other-rankings-container');
+    const targetNumberDisplay = $('#target-number-display');
+
+    // State
+    let db, auth, userId, currentPlayerName, isHost = false, currentGameId = null;
+    let unsubscribeGameListener = null;
+    let timerInterval = null;
+    let previousGameStatus = null;
+    let isPracticeMode = false;
+    let practicePuzzles = null;
+    let currentPracticeLevel = null;
+
+
+    // [SUDOKU] Local board state (length 16, 0 = empty)
+    let given = new Array(16).fill(0);
+    let board = new Array(16).fill(0);
+    let solution = new Array(16).fill(0);
+    let selectedIdx = -1;
+    let hasMistake = false; // for clean-solve bonus
+
+    // Settings
+    let gameSettings = {
+      timeLimit: 60,
+      resultDisplayMode: 'immediate',
+      difficulty: 'medium',
+      numQuestions: 1
+    };
+
+    function toast(msg, t=2000){ toastEl.textContent = msg; toastEl.classList.add('show'); setTimeout(()=>toastEl.classList.remove('show'), t); }
+    const rnd = (a,b)=>Math.floor(Math.random()*(b-a+1))+a;
+
+    // ===== THEME =====
+    const themeKey='g24_theme_mp';
+    const themeSelect=$('#themeSelect');
+    function applyTheme(name){ document.documentElement.setAttribute('data-theme', name); localStorage.setItem(themeKey, name); }
+    const savedTheme = localStorage.getItem(themeKey);
+    const initialTheme = savedTheme || 'contrast';
+    applyTheme(initialTheme);
+    if (themeSelect){ themeSelect.addEventListener('change', ()=>applyTheme(themeSelect.value)); }
+
+    // ===== [SUDOKU] Generator & Solver (guarantee unique solution) =====
+    function baseSolved(){ return [1,2,3,4, 3,4,1,2, 2,1,4,3, 4,3,2,1]; }
+    function shuffle(arr){ for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]];} return arr;}
+    function applyPermutations(sol){
+      let g = sol.slice();
+      const swapRows = (r1,r2)=>{ for(let c=0;c<4;c++){ const i1=r1*4+c, i2=r2*4+c; [g[i1],g[i2]]=[g[i2],g[i1]]; } };
+      const swapCols = (c1,c2)=>{ for(let r=0;r<4;r++){ const i1=r*4+c1, i2=r*4+c2; [g[i1],g[i2]]=[g[i2],g[i1]]; } };
+      if(Math.random()<.5) swapRows(0,1);
+      if(Math.random()<.5) swapRows(2,3);
+      if(Math.random()<.5) swapCols(0,1);
+      if(Math.random()<.5) swapCols(2,3);
+      if(Math.random()<.5){ for(let c=0;c<4;c++){ const i1=0*4+c, i2=2*4+c; [g[i1],g[i2]]=[g[i2],g[i1]]; const i3=1*4+c, i4=3*4+c; [g[i3],g[i4]]=[g[i4],g[i3]]; } }
+      if(Math.random()<.5){ for(let r=0;r<4;r++){ const i1=r*4+0, i2=r*4+2; [g[i1],g[i2]]=[g[i2],g[i1]]; const i3=r*4+1, i4=r*4+3; [g[i3],g[i4]]=[g[i4],g[i3]]; } }
+      const map=[0,...shuffle([1,2,3,4])];
+      for(let i=0;i<16;i++) g[i]=map[g[i]];
+      return g;
+    }
+
+    function countSolutions(pzl){
+      let grid = pzl.slice();
+      let count = 0;
+      function validAt(idx, val){
+        const r=Math.floor(idx/4), c=idx%4;
+        for(let i=0;i<4;i++){
+          if(grid[r*4+i]===val && i!==c) return false;
+          if(grid[i*4+c]===val && i!==r) return false;
+        }
+        const r0=Math.floor(r/2)*2, c0=Math.floor(c/2)*2;
+        for(let rr=r0;rr<r0+2;rr++) for(let cc=c0;cc<c0+2;cc++){
+          const ii=rr*4+cc; if(ii!==idx && grid[ii]===val) return false;
+        }
+        return true;
+      }
+      function dfs(pos=0){
+        while(pos<16 && grid[pos]!==0) pos++;
+        if(pos===16){ count++; return count; }
+        for(let v=1; v<=4; v++){
+          if(validAt(pos,v)){
+            grid[pos]=v;
+            dfs(pos+1);
+            if(count>1) return count;
+            grid[pos]=0;
+          }
+        }
+        return count;
+      }
+      return dfs(0);
+    }
+
+    function makePuzzleByClues(sol, targetClues){
+      let p = sol.slice();
+      const idxs = shuffle([...Array(16).keys()]);
+      let removed = 0;
+      for(const i of idxs){
+        if(16-removed <= targetClues) break;
+        const keep = p[i];
+        p[i]=0;
+        if(countSolutions(p)!==1){ p[i]=keep; }
+        else{ removed++; }
+      }
+      return p;
+    }
+
+    function generateSudoku(difficulty){
+      const sol = applyPermutations(baseSolved());
+      let clueRange = {easy:[9,10], medium:[7,8], hard:[5,6]}[difficulty] || [7,8];
+      const target = rnd(clueRange[0], clueRange[1]);
+      let pzl = makePuzzleByClues(sol, target);
+      if(countSolutions(pzl)!==1){ return generateSudoku(difficulty); }
+      return {solution: sol, puzzle: pzl};
+    }
+
+    // ===== [SUDOKU] Rendering & Validation =====
+    function cellClasses(i){
+      const row=Math.floor(i/4), col=i%4;
+      const classes=[];
+      if(col===1) classes.push('bR');
+      if(row===1) classes.push('bB');
+      return classes.join(' ');
+    }
+
+    function renderSudoku(){
+      sudokuEl.innerHTML='';
+      for(let i=0;i<16;i++){
+        const v = board[i];
+        const cell = document.createElement('div');
+        cell.className = `cell ${cellClasses(i)} ${given[i]? 'given':''}`;
+        cell.dataset.idx = i;
+        cell.textContent = v ? v : '';
+        if(!given[i]){
+          cell.addEventListener('click', ()=>selectCell(i));
+        }
+        sudokuEl.appendChild(cell);
+      }
+      if(selectedIdx>=0) highlightRelatives(selectedIdx);
+      markConflictsAll();
+      updateProgressText();
+    }
+
+    function selectCell(i){
+      selectedIdx = i;
+      $$('.cell').forEach(c=>c.classList.remove('selected','hl'));
+      const el = $$('.cell')[i];
+      el.classList.add('selected');
+      highlightRelatives(i);
+    }
+
+    function highlightRelatives(i){
+      const r=Math.floor(i/4), c=i%4;
+      $$('.cell').forEach((el,idx)=>{
+        const rr=Math.floor(idx/4), cc=idx%4;
+        if(rr===r || cc===c || (Math.floor(rr/2)===Math.floor(r/2) && Math.floor(cc/2)===Math.floor(c/2))){
+          el.classList.add('hl');
+        }
+      });
+    }
+
+    function setNumber(n){
+      if(selectedIdx<0 || given[selectedIdx]) return;
+      board[selectedIdx] = n;
+      if(n!==0 && causesConflict(selectedIdx)){ hasMistake = true; }
+      const cell = $$('.cell')[selectedIdx];
+      cell.textContent = n? n:'';
+      markConflictsAll();
+      updateProgressText();
+      scheduleBoardSync();
+      if(isSolved()) tryFinish();
+    }
+
+    function markConflictsAll(){
+      $$('.cell').forEach(el=>el.classList.remove('conflict','ok'));
+      for(let i=0;i<16;i++){
+        if(board[i]!==0 && causesConflict(i)){ $$('.cell')[i].classList.add('conflict'); }
+        else if(board[i]!==0){ $$('.cell')[i].classList.add('ok'); }
+      }
+    }
+
+    function causesConflict(i){
+      const v = board[i]; if(v===0) return false;
+      const r=Math.floor(i/4), c=i%4;
+      for(let k=0;k<4;k++){
+        if(k!==c && board[r*4+k]===v) return true;
+        if(k!==r && board[k*4+c]===v) return true;
+      }
+      const r0=Math.floor(r/2)*2, c0=Math.floor(c/2)*2;
+      for(let rr=r0; rr<r0+2; rr++) for(let cc=c0; cc<c0+2; cc++){
+        const ii=rr*4+cc; if(ii!==i && board[ii]===v) return true;
+      }
+      return false;
+    }
+
+    function isSolved(){
+      for(let i=0;i<16;i++) if(board[i]!==solution[i]) return false;
+      return true;
+    }
+
+    function updateProgressText(){
+      const filled = board.filter(x=>x!==0).length;
+      puzzleProgressEl.textContent = `เติมแล้ว ${filled}/16`;
+    }
+
+    // ===== [SUDOKU] Input handlers =====
+    pickerEl.addEventListener('click', (e)=>{
+      const b = e.target.closest('.pick'); if(!b) return;
+      setNumber(parseInt(b.dataset.n,10));
+    });
+    document.addEventListener('keydown', (e)=>{
+      if(selectedIdx<0) return;
+      if(e.key>='1' && e.key<='4'){ setNumber(parseInt(e.key,10)); }
+      if(e.key==='Backspace' || e.key==='Delete' || e.key==='0'){ setNumber(0); }
+      const r=Math.floor(selectedIdx/4), c=selectedIdx%4;
+      if(e.key==='ArrowRight') selectCell(r*4 + Math.min(c+1,3));
+      if(e.key==='ArrowLeft')  selectCell(r*4 + Math.max(c-1,0));
+      if(e.key==='ArrowDown')  selectCell(Math.min((r+1)*4 + c,15));
+      if(e.key==='ArrowUp')    selectCell(Math.max((r-1)*4 + c,0));
+    });
+
+    // ===== Firebase init & flow =====
+    async function initialize(){
+      try{
+        const app = initializeApp(firebaseConfig);
+        db = getFirestore(app);
+        auth = getAuth(app);
+        onAuthStateChanged(auth, async (user)=>{ if(!user){ await signInAnonymously(auth); } });
+      }catch(error){ console.error("Firebase init failed:", error); toast("การเชื่อมต่อล้มเหลว"); }
+    }
+
+    function showView(viewName){
+      [playerJoinView, playerWaitView, adminLoginModal, adminLobbyView, gameView, gameOverView, adminSettingsModal].forEach(v=>v.classList.add('hidden'));
+      const adminBtn = $('#admin-icon-btn');
+      if(viewName==='player-join' || viewName==='admin-login'){ adminBtn.classList.remove('hidden'); }
+      else if(isHost){ adminBtn.classList.remove('hidden'); } else { adminBtn.classList.add('hidden'); }
+
+      if(viewName==='player-join') playerJoinView.classList.remove('hidden');
+      else if(viewName==='player-wait') playerWaitView.classList.remove('hidden');
+      else if(viewName==='admin-login') adminLoginModal.classList.remove('hidden');
+      else if(viewName==='admin-lobby') adminLobbyView.classList.remove('hidden');
+      else if(viewName==='admin-settings') adminSettingsModal.classList.remove('hidden');
+      else if(viewName==='game') gameView.classList.remove('hidden');
+      else if(viewName==='game-over') gameOverView.classList.remove('hidden');
+    }
+
+    async function createGameRoom(){
+      isHost = true;
+      document.body.classList.remove('player-view');
+      showView('admin-lobby');
+      gameCodeDisplay.textContent = '...';
+      const newGameId = rnd(10,99).toString();
+      currentGameId = newGameId;
+      const newGameData = {
+        hostId: auth.currentUser.uid,
+        status: 'lobby',
+        players: {},
+        createdAt: serverTimestamp()
+      };
+      await setDoc(doc(db,"games",currentGameId), newGameData);
+      gameCodeDisplay.textContent = currentGameId;
+      listenForGameUpdates(currentGameId);
+    }
+
+    async function handleStartGame(){
+      if(!isHost || !currentGameId) return;
+      gameSettings.resultDisplayMode = document.querySelector('input[name="resultDisplayMode"]:checked').value;
+      gameSettings.timeLimit = Math.max(10, parseInt($('#time-limit-input').value||'60',10));
+      gameSettings.difficulty = $('#difficulty-select').value;
+      
+      const gameRef = doc(db,"games",currentGameId);
+      try{
+        await runTransaction(db, async (transaction)=>{
+          const gameDoc = await transaction.get(gameRef);
+          if(!gameDoc.exists()) throw "Game does not exist!";
+          const currentPlayers = gameDoc.data().players || {};
+
+          const updatePayload = {
+            status:'playing',
+            startTime: serverTimestamp(),
+            gameMode: gameSettings,
+          };
+          
+          if (gameSettings.difficulty === 'mixed') {
+            gameSettings.numQuestions = 3;
+            const easy = generateSudoku('easy');
+            const medium = generateSudoku('medium');
+            const hard = generateSudoku('hard');
+            updatePayload.puzzles = { easy, medium, hard };
+          } else {
+            gameSettings.numQuestions = 1;
+            updatePayload.sudoku = generateSudoku(gameSettings.difficulty);
+          }
+
+          for(const playerName in currentPlayers){
+            updatePayload[`players.${playerName}.score`] = 0;
+            updatePayload[`players.${playerName}.finishTime`] = null;
+            updatePayload[`players.${playerName}.hasMistake`] = false;
+            if (gameSettings.difficulty === 'mixed') {
+              updatePayload[`players.${playerName}.currentLevel`] = 'easy';
+              updatePayload[`players.${playerName}.board`] = updatePayload.puzzles.easy.puzzle.join('');
+              updatePayload[`players.${playerName}.filled`] = updatePayload.puzzles.easy.puzzle.filter(c => c !== 0).length;
+            } else {
+              updatePayload[`players.${playerName}.board`] = updatePayload.sudoku.puzzle.join('');
+              updatePayload[`players.${playerName}.filled`] = updatePayload.sudoku.puzzle.filter(c => c !== 0).length;
+            }
+          }
+          transaction.update(gameRef, updatePayload);
+        });
+        showView('game');
+      }catch(e){ console.error("Error starting game:", e); toast("เกิดข้อผิดพลาดในการเริ่มเกม"); }
+    }
+
+    function startPracticeGame() {
+        isPracticeMode = true;
+        gameSettings.timeLimit = Math.max(10, parseInt($('#time-limit-input').value || '60', 10));
+        gameSettings.difficulty = $('#difficulty-select').value;
+
+        document.body.classList.add('player-view'); 
+        hostControls.classList.add('hidden');
+        playerScoreDisplay.classList.add('hidden');
+        $('#toggle-sidebar-btn').classList.add('hidden');
+
+        if (gameSettings.difficulty === 'mixed') {
+            practicePuzzles = {
+                easy: generateSudoku('easy'),
+                medium: generateSudoku('medium'),
+                hard: generateSudoku('hard')
+            };
+            currentPracticeLevel = 'easy';
+            loadPracticePuzzle(currentPracticeLevel);
+        } else {
+            practicePuzzles = null;
+            currentPracticeLevel = gameSettings.difficulty;
+            const pzlData = generateSudoku(gameSettings.difficulty);
+            given = pzlData.puzzle.slice();
+            board = pzlData.puzzle.slice();
+            solution = pzlData.solution.slice();
+            targetNumberDisplay.textContent = `ฝึกซ้อม: ${gameSettings.difficulty}`;
+        }
+
+        hasMistake = false;
+        selectedIdx = board.findIndex((v, idx) => !given[idx]);
+        if (selectedIdx < 0) selectedIdx = 0;
+
+        showView('game');
+        gameBoard.classList.remove('hidden');
+        playerFinishedView.classList.add('hidden');
+        pickerEl.classList.remove('hidden'); 
+        $('#reset-btn').classList.remove('hidden'); 
+        $('#home-btn').classList.remove('hidden'); 
+
+        renderSudoku();
+        startPracticeTimer();
+    }
+    
+    function loadPracticePuzzle(level) {
+        const pzlData = practicePuzzles[level];
+        given = pzlData.puzzle.slice();
+        board = pzlData.puzzle.slice();
+        solution = pzlData.solution.slice();
+        hasMistake = false;
+        selectedIdx = board.findIndex((v, idx) => !given[idx]);
+        if (selectedIdx < 0) selectedIdx = 0;
+        targetNumberDisplay.textContent = `ฝึกซ้อม: ${level}`;
+        renderSudoku();
+    }
+
+    function startPracticeTimer() {
+        if (timerInterval) clearInterval(timerInterval);
+        let remaining = gameSettings.timeLimit;
+        
+        const updateTimerDisplay = () => {
+            const mins = String(Math.floor(remaining / 60)).padStart(2, '0');
+            const secs = String(remaining % 60).padStart(2, '0');
+            gameTimerEl.textContent = `เวลา: ${mins}:${secs}`;
+        };
+
+        updateTimerDisplay();
+
+        timerInterval = setInterval(() => {
+            remaining--;
+            updateTimerDisplay();
+            if (remaining <= 0) {
+                clearInterval(timerInterval);
+                gameBoard.classList.add('hidden');
+                playerFinishedView.classList.remove('hidden');
+                $('#player-finished-view h2').textContent = "หมดเวลา!";
+                $('#player-finished-view p').textContent = "ลองใหม่อีกครั้งนะ";
+            }
+        }, 1000);
+    }
+
+    async function forceEndGame(){
+      if(!isHost || !currentGameId) return;
+      const gameRef = doc(db,"games",currentGameId);
+      const gameSnap = await getDoc(gameRef);
+      if(gameSnap.exists() && gameSnap.data().status==='playing'){
+        await updateDoc(gameRef, { status:'finished', winner: null }); // No winner on timeout
+      }
+    }
+
+    async function returnToLobby(){
+      if(!isHost || !currentGameId) return;
+      const gameRef = doc(db,"games",currentGameId);
+      try{
+        await updateDoc(gameRef, {
+          status:'lobby',
+          players:{},
+          winner: deleteField(),
+          sudoku: deleteField(),
+          puzzles: deleteField(),
+          startTime: deleteField(),
+          gameMode: deleteField()
+        });
+        showView('admin-lobby');
+      }catch(e){ console.error("Error returning to lobby:", e); toast("เกิดข้อผิดพลาดในการกลับสู่ล็อบบี้"); }
+    }
+
+    async function handleJoinGame(){
+      const gameCode = $('#game-code-input').value;
+      const name = $('#player-name-input').value.trim();
+      if(!gameCode || !name) return toast("กรุณากรอกข้อมูลให้ครบถ้วน");
+
+      currentGameId = gameCode;
+      currentPlayerName = name;
+      const gameRef = doc(db,"games",currentGameId);
+
+      try{
+        await runTransaction(db, async (transaction)=>{
+          const gameDoc = await transaction.get(gameRef);
+          if(!gameDoc.exists()) throw new Error("ไม่พบห้องเกมนี้");
+          const gameData = gameDoc.data();
+          if(gameData.status!=='lobby') throw new Error("ไม่สามารถเข้าร่วมได้ เกมเริ่มไปแล้ว");
+
+          let finalName = name;
+          if(gameData.players && gameData.players[finalName]){
+            finalName = `${name}${rnd(10,99)}`;
+            toast(`ชื่อซ้ำ, เปลี่ยนเป็น ${finalName} แทน`);
+          }
+          currentPlayerName = finalName;
+          transaction.update(gameRef, { [`players.${finalName}`]: { joined:true } });
+        });
+        
+        isHost = false;
+        document.body.classList.add('player-view');
+        toast("เข้าร่วมสำเร็จ! รอสักครู่...");
+        listenForGameUpdates(currentGameId);
+      }catch(error){ console.error("Error joining game:", error); toast(error.message); }
+    }
+
+    function listenForGameUpdates(gameId){
+      if(unsubscribeGameListener) unsubscribeGameListener();
+      const gameRef = doc(db,"games",gameId);
+      unsubscribeGameListener = onSnapshot(gameRef, (docSnap)=>{
+        if(!docSnap.exists()){
+          toast("ห้องเกมถูกปิดแล้ว");
+          if(unsubscribeGameListener) unsubscribeGameListener();
+          if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+          isHost = false;
+          document.body.classList.remove('player-view');
+          showView('player-join');
+          return;
+        }
+        const gameData = docSnap.data();
+        const currentStatus = gameData.status;
+        if(!isHost && previousGameStatus==='finished' && currentStatus==='lobby'){
+          if(unsubscribeGameListener) unsubscribeGameListener();
+          if(timerInterval) clearInterval(timerInterval);
+          currentGameId=null; currentPlayerName=null;
+          toast("แอดมินได้สร้างห้องใหม่แล้ว");
+          document.body.classList.remove('player-view');
+          showView('player-join');
+          previousGameStatus=null;
+          return;
+        }
+        previousGameStatus = currentStatus;
+
+        if(currentStatus==='lobby'){
+          if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+          if(isHost){ showView('admin-lobby'); renderLobbyPlayers(gameData.players); }
+          else showView('player-wait');
+        }else if(currentStatus==='playing'){
+          startOrUpdateTimer(gameData);
+          showView('game');
+          if (isHost) {
+            renderAdminGameView(gameData);
+            if (gameData.gameMode.resultDisplayMode === 'wait') {
+                const players = Object.values(gameData.players || {});
+                if (players.length > 0 && players.every(p => p.finishTime)) {
+                    forceEndGame();
+                }
+            }
+          } else {
+            renderPlayerGameView(gameData);
+          }
+        }else if(currentStatus==='finished'){
+          if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+          renderGameOverView(gameData);
+        }
+      });
+    }
+
+    function renderLobbyPlayers(players){
+      const names = Object.keys(players||{});
+      lobbyPlayerCount.textContent = names.length;
+      lobbyPlayerNameList.innerHTML = names.length===0
+        ? `<p class="text-gray-500 text-center w-full">ยังไม่มีใครเข้าร่วม...</p>`
+        : names.map(n=>`<div class="lobby-player-tag">${n}</div>`).join('');
+    }
+
+    function startOrUpdateTimer(gameData){
+      if(timerInterval) clearInterval(timerInterval);
+      const mode = gameData.gameMode || gameSettings;
+      const startMs = gameData.startTime.toMillis();
+      timerInterval = setInterval(()=>{
+        const elapsed = Math.floor((Date.now()-startMs)/1000);
+        const remaining = mode.timeLimit - elapsed;
+        if(remaining<=0){
+          clearInterval(timerInterval);
+          gameTimerEl.textContent = "เวลา: 00:00";
+          if(isHost) forceEndGame();
+        }else{
+          const mins = String(Math.floor(remaining/60)).padStart(2,'0');
+          const secs = String(remaining%60).padStart(2,'0');
+          gameTimerEl.textContent = `เวลา: ${mins}:${secs}`;
+        }
+      }, 500);
+    }
+
+    function renderAdminGameView(gameData){
+      $('#toggle-sidebar-btn').classList.remove('hidden');
+      hostControls.classList.remove('hidden');
+      const players = gameData.players || {};
+      const sorted = Object.entries(players).sort((a,b)=>{
+        const A = a[1], B = b[1];
+        if((A.finishTime?1:0)!==(B.finishTime?1:0)) return (B.finishTime?1:0)-(A.finishTime?1:0);
+        if((A.score||0)!==(B.score||0)) return (B.score||0)-(A.score||0);
+        return (B.filled||0)-(A.filled||0);
+      });
+      playerList.innerHTML = sorted.map(([name,data])=>{
+        let status = `${data.filled||0}/16`;
+        if (data.finishTime) {
+            status = 'เสร็จแล้ว';
+        } else if (gameData.gameMode.difficulty === 'mixed') {
+            status = `ด่าน ${data.currentLevel || 'easy'} (${data.filled||0}/16)`;
+        }
+        return `<div class="player-row"><span class="player-name">${name}</span><span class="player-progress">${data.score||0} คะแนน (${status})</span></div>`;
+      }).join('');
+
+      let pzlData;
+      if (gameData.gameMode.difficulty === 'mixed') {
+          const levelOrder = ['easy', 'medium', 'hard'];
+          let mostAdvancedLevel = 'easy';
+          const playerArray = Object.values(players);
+
+          for (const player of playerArray) {
+              if (player.finishTime) continue;
+              const playerLevel = player.currentLevel || 'easy';
+              if (levelOrder.indexOf(playerLevel) > levelOrder.indexOf(mostAdvancedLevel)) {
+                  mostAdvancedLevel = playerLevel;
+              }
+          }
+          pzlData = gameData.puzzles ? gameData.puzzles[mostAdvancedLevel] : null;
+
+      } else {
+          pzlData = gameData.sudoku;
+      }
+
+      if (!pzlData) return;
+      
+      const pzl = pzlData.puzzle || [];
+      given = pzl.slice();
+      board = pzl.slice(); 
+      solution = pzlData.solution || [];
+      selectedIdx = -1;
+      renderSudoku();
+      $$('#sudoku .cell').forEach(el=>el.style.pointerEvents='none');
+      pickerEl.classList.add('hidden');
+      $('#reset-btn').classList.add('hidden');
+      $('#home-btn').classList.add('hidden');
+    }
+
+    function renderPlayerGameView(gameData){
+      $('#toggle-sidebar-btn').classList.add('hidden');
+      const my = (gameData.players||{})[currentPlayerName];
+      if(!my) return;
+
+      playerScoreDisplay.textContent = `คะแนน: ${my.score || 0}`;
+      playerScoreDisplay.classList.remove('hidden');
+
+      let currentPuzzleData;
+      if(gameData.gameMode.difficulty === 'mixed') {
+        const level = my.currentLevel || 'easy';
+        currentPuzzleData = gameData.puzzles[level];
+        targetNumberDisplay.textContent = `ด่าน ${level}`;
+      } else {
+        currentPuzzleData = gameData.sudoku;
+        targetNumberDisplay.textContent = 'Sudoku 4x4';
+      }
+      
+      if (!currentPuzzleData) return;
+
+      const pzl = currentPuzzleData.puzzle || [];
+      given = pzl.slice();
+      solution = currentPuzzleData.solution || [];
+      board = (my.board || pzl.join('')).split('').map(x=>parseInt(x,10)||0);
+      hasMistake = !!my.hasMistake;
+
+      selectedIdx = board.findIndex((v,idx)=>!given[idx]);
+      if(selectedIdx<0) selectedIdx=0;
+
+      if(my.finishTime){
+        gameBoard.classList.add('hidden');
+        playerFinishedView.classList.remove('hidden');
+      }else{
+        gameBoard.classList.remove('hidden');
+        playerFinishedView.classList.add('hidden');
+        renderSudoku();
+      }
+    }
+
+    function renderGameOverView(gameData){
+      const winner = gameData.winner;
+      const resultsHeader = $('#results-header');
+      if (winner) {
+        resultsHeader.innerHTML = `<i class="fas fa-crown mr-2"></i>ผู้ชนะคือ ${winner}!`;
+      } else {
+        resultsHeader.innerHTML = `<i class="fas fa-trophy mr-2"></i>หมดเวลา!`;
+      }
+
+      const players = gameData.players || {};
+      const finalRanks = Object.entries(players).sort(([,a],[,b])=>{
+        if((a.score||0)!==(b.score||0)) return (b.score||0)-(a.score||0);
+        if(b.finishTime && a.finishTime) return a.finishTime.toMillis() - b.finishTime.toMillis();
+        if(b.finishTime) return 1; 
+        if(a.finishTime) return -1;
+        return (b.filled||0) - (a.filled||0);
+      });
+
+      podiumContainer.innerHTML=''; otherRankingsList.innerHTML='';
+      const podiumPlayers = finalRanks.slice(0,3);
+      const otherPlayers  = finalRanks.slice(3);
+
+      podiumPlayers.forEach(([name,data],i)=>{
+        const rank = i+1;
+        const el = document.createElement('div');
+        el.className = `podium-stand podium-${rank}`;
+        el.innerHTML = `${rank===1 && winner ?'<i class="fas fa-crown"></i>':''}
+          <div class="player-name">${name}</div>
+          <div class="player-score">${data.score||0} คะแนน</div>
+          <div class="rank">${rank}</div>`;
+        podiumContainer.appendChild(el);
+      });
+      for(let i=finalRanks.length;i<3;i++){
+        const rank=i+1, el=document.createElement('div'); el.className=`podium-stand podium-${rank}`; podiumContainer.appendChild(el);
+      }
+      if(otherPlayers.length>0){
+        otherRankingsContainer.classList.remove('hidden');
+        otherRankingsList.innerHTML = otherPlayers.map(([name,data],idx)=>`<li><span>${idx+4}. ${name}</span><span>${data.score||0} คะแนน</span></li>`).join('');
+      }else otherRankingsContainer.classList.add('hidden');
+
+      if(isHost) $('#back-to-lobby-btn').classList.remove('hidden'); else $('#back-to-lobby-btn').classList.add('hidden');
+      showView('game-over');
+    }
+
+    function renderPracticeGameOverView() {
+        const timerText = gameTimerEl.textContent.replace('เวลา: ', '');
+        const parts = timerText.split(':');
+        const remainingSeconds = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+        const timeUsedSeconds = gameSettings.timeLimit - remainingSeconds;
+        
+        const mins = String(Math.floor(timeUsedSeconds / 60)).padStart(2, '0');
+        const secs = String(timeUsedSeconds % 60).padStart(2, '0');
+        const timeUsedFormatted = `${mins}:${secs}`;
+
+        resultsHeader.innerHTML = `<i class="fas fa-check-circle mr-2"></i>ฝึกซ้อมสำเร็จ!`;
+        
+        podiumContainer.innerHTML = `
+            <div class="text-center text-lg space-y-4 my-8 p-6 rounded-lg" style="background: var(--card-bg); border: 2px solid var(--card-border);">
+                <p>ความยาก: <strong class="text-xl" style="color: var(--accent);">${gameSettings.difficulty}</strong></p>
+                <p>เวลาที่ใช้: <strong class="text-xl" style="color: var(--accent);">${timeUsedFormatted}</strong></p>
+            </div>
+        `;
+        otherRankingsContainer.classList.add('hidden');
+        
+        const backBtn = $('#back-to-lobby-btn');
+        backBtn.textContent = 'กลับไปหน้าแรก';
+        backBtn.classList.remove('hidden');
+        backBtn.onclick = () => $('#home-btn').click();
+
+        showView('game-over');
+    }
+
+    // ===== [SUDOKU] Realtime board sync (light) =====
+    let syncTimer = null;
+    function scheduleBoardSync(){
+      if (isPracticeMode) return;
+      const filled = board.filter(x=>x!==0).length;
+      if(syncTimer) clearTimeout(syncTimer);
+      syncTimer = setTimeout(async ()=>{
+        try{
+          await updateDoc(doc(db,"games",currentGameId), {
+            [`players.${currentPlayerName}.board`]: board.join(''),
+            [`players.${currentPlayerName}.hasMistake`]: hasMistake,
+            [`players.${currentPlayerName}.filled`]: filled
+          });
+        }catch(e){ console.warn('board sync failed', e); }
+      }, 150);
+    }
+
+    // ===== [SUDOKU] Try finish (with anti-cheat via transaction) =====
+    async function tryFinish(){
+      if (isPracticeMode) {
+        if (!isSolved()) return;
+
+        // Calculate score
+        const timerText = gameTimerEl.textContent.replace('เวลา: ', '');
+        const parts = timerText.split(':');
+        const remainingSeconds = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
+        const score = 100 + remainingSeconds + (hasMistake ? 0 : 50);
+
+        // Handle mixed mode level progression
+        if (gameSettings.difficulty === 'mixed') {
+            if (currentPracticeLevel === 'easy') {
+                currentPracticeLevel = 'medium';
+                toast("เยี่ยม! ด่านต่อไป: ปานกลาง", 2500);
+                loadPracticePuzzle('medium');
+                return; 
+            } else if (currentPracticeLevel === 'medium') {
+                currentPracticeLevel = 'hard';
+                toast("สุดยอด! ด่านต่อไป: ยาก", 2500);
+                loadPracticePuzzle('hard');
+                return;
+            }
+        }
+        
+        // This is the final puzzle. Now we show the finished view.
+        if (timerInterval) clearInterval(timerInterval);
+        gameBoard.classList.add('hidden');
+        playerFinishedView.classList.remove('hidden');
+
+        // Update the finished view as requested
+        $('#player-finished-view h2').textContent = "เยี่ยมมาก!";
+        $('#player-finished-view p').textContent = "คุณไขปริศนาสำเร็จ";
+        $('#practice-score-display').innerHTML = `
+            <p class="text-lg mt-4">คะแนนรอบนี้:</p>
+            <div class="text-4xl font-bold" style="color: var(--accent);">${score}</div>
+        `;
+        
+        // Wait a bit, then show the final summary screen
+        setTimeout(() => {
+            renderPracticeGameOverView();
+        }, 2000);
+
+        return;
+      }
+
+      if (syncTimer) clearTimeout(syncTimer);
+      const gameRef = doc(db,"games",currentGameId);
+      try{
+        await runTransaction(db, async (tx)=>{
+          const snap = await tx.get(gameRef);
+          if(!snap.exists()) throw new Error("Game not found");
+          const data = snap.data();
+          if(data.status !== 'playing') return;
+
+          const player = (data.players||{})[currentPlayerName];
+          if(!player) throw new Error("Player not found in game");
+          
+          const boardToCheck = board;
+          
+          let currentSolution;
+          let currentLevel = 'single';
+
+          if (data.gameMode.difficulty === 'mixed') {
+              currentLevel = player.currentLevel || 'easy';
+              currentSolution = data.puzzles[currentLevel].solution;
+          } else {
+              currentSolution = data.sudoku.solution;
+          }
+
+          for(let i=0;i<16;i++){ if(boardToCheck[i]!==currentSolution[i]) return; }
+
+          const startMs = data.startTime.toMillis();
+          const elapsed = Math.floor((Date.now() - startMs) / 1000);
+          const remaining = Math.max(0, data.gameMode.timeLimit - elapsed);
+          
+          const points = 100 + remaining + (hasMistake ? 0 : 50);
+          const updatePayload = {};
+
+          if (data.gameMode.difficulty === 'mixed') {
+              if (currentLevel === 'easy') {
+                  updatePayload[`players.${currentPlayerName}.currentLevel`] = 'medium';
+                  updatePayload[`players.${currentPlayerName}.board`] = data.puzzles.medium.puzzle.join('');
+                  updatePayload[`players.${currentPlayerName}.filled`] = data.puzzles.medium.puzzle.filter(c=>c!==0).length;
+                  updatePayload[`players.${currentPlayerName}.hasMistake`] = false;
+                  updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+              } else if (currentLevel === 'medium') {
+                  updatePayload[`players.${currentPlayerName}.currentLevel`] = 'hard';
+                  updatePayload[`players.${currentPlayerName}.board`] = data.puzzles.hard.puzzle.join('');
+                  updatePayload[`players.${currentPlayerName}.filled`] = data.puzzles.hard.puzzle.filter(c=>c!==0).length;
+                  updatePayload[`players.${currentPlayerName}.hasMistake`] = false;
+                  updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+              } else {
+                  updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+                  updatePayload[`players.${currentPlayerName}.finishTime`] = serverTimestamp();
+                  if (data.gameMode.resultDisplayMode === 'immediate') {
+                      updatePayload.status = 'finished';
+                      updatePayload.winner = currentPlayerName;
+                  }
+              }
+          } else {
+              updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+              updatePayload[`players.${currentPlayerName}.finishTime`] = serverTimestamp();
+              if (data.gameMode.resultDisplayMode === 'immediate') {
+                  updatePayload.status = 'finished';
+                  updatePayload.winner = currentPlayerName;
+              }
+          }
+          tx.update(gameRef, updatePayload);
+        });
+      }catch(e){
+        if (e.message.includes("aborted")) {
+            console.log("Transaction aborted, likely because another player finished first.");
+            toast("เกมจบแล้ว มีผู้ชนะแล้ว!");
+        } else {
+            console.error('Finish attempt failed:', e);
+            toast("เกิดข้อผิดพลาดในการจบเกม");
+        }
+      }
+    }
+
+    // ===== Events =====
+    $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
+    $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
+    $('#admin-login-btn').addEventListener('click', async ()=>{
+      if($('#admin-password-input').value==='4'){ await createGameRoom(); }
+      else toast('รหัสผ่านไม่ถูกต้อง');
+    });
+    $('#join-game-btn').addEventListener('click', handleJoinGame);
+    
+    $('#start-practice-btn').addEventListener('click', () => {
+        isPracticeMode = true;
+        isHost = true; // To allow access to settings modal
+        showView('admin-settings');
+        $('#competition-settings').classList.add('hidden');
+        $('#start-game-btn').innerHTML = '<i class="fas fa-play mr-2"></i>เริ่มฝึกซ้อม';
+    });
+    
+    $('#open-settings-btn').addEventListener('click', () => {
+        isPracticeMode = false;
+        showView('admin-settings');
+        $('#competition-settings').classList.remove('hidden');
+        $('#start-game-btn').innerHTML = '<i class="fas fa-play mr-2"></i>เริ่มแข่งขัน';
+    });
+
+    $('#cancel-settings-btn').addEventListener('click', () => {
+        if (isHost && !currentGameId && isPracticeMode) {
+            // Came from main menu practice button, go back there
+            isPracticeMode = false;
+            isHost = false;
+            showView('player-join');
+        } else {
+            // Came from admin lobby
+            showView('admin-lobby');
+        }
+    });
+    
+    $('#start-game-btn').addEventListener('click', () => {
+        if (isPracticeMode) {
+            startPracticeGame();
+        } else {
+            handleStartGame();
+        }
+    });
+
+    $('#end-game-btn').addEventListener('click', forceEndGame);
+    $('#back-to-lobby-btn').addEventListener('click', returnToLobby);
+    
+    $('#home-btn').addEventListener('click', ()=>{
+      if(unsubscribeGameListener) unsubscribeGameListener();
+      if(timerInterval) clearInterval(timerInterval);
+      currentGameId=null; currentPlayerName=null;
+      isHost = false;
+      isPracticeMode = false;
+      practicePuzzles = null;
+      currentPracticeLevel = null;
+      document.body.classList.remove('player-view');
+      showView('player-join');
+      $('#player-finished-view h2').textContent = "เสร็จแล้ว!";
+      $('#player-finished-view p').textContent = "รอผลการแข่งขันสักครู่...";
+    });
+
+    $('#reset-btn').addEventListener('click', ()=>{
+      for(let i=0;i<16;i++) board[i]=given[i];
+      hasMistake=false;
+      renderSudoku();
+      scheduleBoardSync();
+    });
+    sudokuEl.addEventListener('click', (e)=>{
+      const cell = e.target.closest('.cell'); if(!cell) return;
+      const i = parseInt(cell.dataset.idx,10);
+      if(!given[i]) selectCell(i);
+    });
+
+    $('#toggle-sidebar-btn').addEventListener('click', () => {
+        $('.app').classList.toggle('sidebar-hidden');
+    });
+
+    $('#difficulty-select').addEventListener('change', (e) => {
+        const timeInput = $('#time-limit-input');
+        switch(e.target.value) {
+            case 'easy': timeInput.value = 30; break;
+            case 'medium': timeInput.value = 60; break;
+            case 'hard': timeInput.value = 120; break;
+            case 'mixed': timeInput.value = 210; break;
+        }
+    });
+
+    window.addEventListener('beforeunload', ()=>{
+      if(isHost && currentGameId){ deleteDoc(doc(db,'games',currentGameId)); }
+    });
+
+    // Boot
+    initialize();
+    showView('player-join');
+  </script>
+</body>
+</html>
