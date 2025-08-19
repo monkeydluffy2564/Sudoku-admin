@@ -1333,7 +1333,7 @@
     $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
-      if($('#admin-password-input').value==='8'){ await createGameRoom(); }
+      if($('#admin-password-input').value===''){ await createGameRoom(); }
       else toast('รหัสผ่านไม่ถูกต้อง');
     });
     $('#join-game-btn').addEventListener('click', handleJoinGame);
