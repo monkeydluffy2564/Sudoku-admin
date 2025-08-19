@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Sudoku 4×4 - แข่งขันหลายคน</title>
+  <title>Sudoku 4×4 - แข่งขันหลายคน (แก้ไขแล้ว)</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -413,7 +413,7 @@
     // Firebase (unchanged)
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
     import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp, runTransaction, deleteDoc, deleteField, increment } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+    import { getFirestore, doc, getDoc, setDoc, updateDoc, onSnapshot, serverTimestamp, runTransaction, deleteDoc, deleteField, increment, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyAJsk4l8I8uCYpJY8jZLAlRW1w2qLWN-2o",
@@ -460,6 +460,8 @@
     // State
     let db, auth, userId, currentPlayerName, isHost = false, currentGameId = null;
     let unsubscribeGameListener = null;
+    // --- NEW: Listener for individual player state ---
+    let unsubscribePlayerStateListener = null; 
     let timerInterval = null;
     let previousGameStatus = null;
     let isPracticeMode = false;
@@ -613,13 +615,17 @@
 
     function setNumber(n){
       if(selectedIdx<0 || given[selectedIdx]) return;
-      board[selectedIdx] = n;
-      if(n!==0 && causesConflict(selectedIdx)){ hasMistake = true; }
+      
+      // --- CHANGE: Update local board immediately for responsive UI ---
       const cell = $$('.cell')[selectedIdx];
-      cell.textContent = n? n:'';
+      cell.textContent = n ? n : '';
+      board[selectedIdx] = n;
+
+      if(n!==0 && causesConflict(selectedIdx)){ hasMistake = true; }
+      
       markConflictsAll();
       updateProgressText();
-      scheduleBoardSync();
+      scheduleBoardSync(); // This will now sync to the player's own document
       if(isSolved()) tryFinish();
     }
 
@@ -745,17 +751,29 @@
           }
 
           for(const playerName in currentPlayers){
+            // --- CHANGE: Update main game doc with player shell ---
             updatePayload[`players.${playerName}.score`] = 0;
             updatePayload[`players.${playerName}.finishTime`] = null;
-            updatePayload[`players.${playerName}.hasMistake`] = false;
+            updatePayload[`players.${playerName}.filled`] = 0; // Start with 0 filled
+            
+            // --- NEW: Create a separate document for each player's state ---
+            const playerStateRef = doc(db, "games", currentGameId, "playerStates", playerName);
+            let initialPuzzle, filledCount;
+
             if (gameSettings.difficulty === 'mixed') {
+              initialPuzzle = updatePayload.puzzles.easy.puzzle;
               updatePayload[`players.${playerName}.currentLevel`] = 'easy';
-              updatePayload[`players.${playerName}.board`] = updatePayload.puzzles.easy.puzzle.join('');
-              updatePayload[`players.${playerName}.filled`] = updatePayload.puzzles.easy.puzzle.filter(c => c !== 0).length;
             } else {
-              updatePayload[`players.${playerName}.board`] = updatePayload.sudoku.puzzle.join('');
-              updatePayload[`players.${playerName}.filled`] = updatePayload.sudoku.puzzle.filter(c => c !== 0).length;
+              initialPuzzle = updatePayload.sudoku.puzzle;
             }
+            filledCount = initialPuzzle.filter(c => c !== 0).length;
+            updatePayload[`players.${playerName}.filled`] = filledCount;
+
+            const playerStateData = {
+                board: initialPuzzle.join(''),
+                hasMistake: false,
+            };
+            transaction.set(playerStateRef, playerStateData);
           }
           transaction.update(gameRef, updatePayload);
         });
@@ -908,6 +926,8 @@
         if(!docSnap.exists()){
           toast("ห้องเกมถูกปิดแล้ว");
           if(unsubscribeGameListener) unsubscribeGameListener();
+          // --- NEW: Also clean up player state listener ---
+          if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
           isHost = false;
           document.body.classList.remove('player-view');
@@ -918,6 +938,7 @@
         const currentStatus = gameData.status;
         if(!isHost && previousGameStatus==='finished' && currentStatus==='lobby'){
           if(unsubscribeGameListener) unsubscribeGameListener();
+          if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           if(timerInterval) clearInterval(timerInterval);
           currentGameId=null; currentPlayerName=null;
           toast("แอดมินได้สร้างห้องใหม่แล้ว");
@@ -930,6 +951,7 @@
 
         if(currentStatus==='lobby'){
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+          if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           if(isHost){ showView('admin-lobby'); renderLobbyPlayers(gameData.players); }
           else showView('player-wait');
         }else if(currentStatus==='playing'){
@@ -944,13 +966,32 @@
                 }
             }
           } else {
-            renderPlayerGameView(gameData);
+            // --- CHANGE: Main listener now only renders shell, player state listener renders board ---
+            renderPlayerGameView(gameData); 
+            listenForPlayerState(gameId, currentPlayerName); // Start listening to my own board
           }
         }else if(currentStatus==='finished'){
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
+          if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           renderGameOverView(gameData);
         }
       });
+    }
+
+    // --- NEW FUNCTION: Listen to the player's own state document ---
+    function listenForPlayerState(gameId, playerName) {
+        if (unsubscribePlayerStateListener) return; // Already listening
+
+        const playerStateRef = doc(db, "games", gameId, "playerStates", playerName);
+        unsubscribePlayerStateListener = onSnapshot(playerStateRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const playerData = docSnap.data();
+                // Update local board from dedicated document, preventing overwrite from others
+                board = (playerData.board || '').split('').map(x => parseInt(x, 10) || 0);
+                hasMistake = !!playerData.hasMistake;
+                renderSudoku(); // Re-render the board with the latest personal state
+            }
+        });
     }
 
     function renderLobbyPlayers(players){
@@ -1053,12 +1094,11 @@
       
       if (!currentPuzzleData) return;
 
-      const pzl = currentPuzzleData.puzzle || [];
-      given = pzl.slice();
-      solution = currentPuzzleData.solution || [];
-      board = (my.board || pzl.join('')).split('').map(x=>parseInt(x,10)||0);
-      hasMistake = !!my.hasMistake;
-
+      // --- CHANGE: Set the 'given' and 'solution' but NOT the 'board' ---
+      // The 'board' is now updated exclusively by the player state listener.
+      given = (currentPuzzleData.puzzle || []).slice();
+      solution = (currentPuzzleData.solution || []).slice();
+      
       selectedIdx = board.findIndex((v,idx)=>!given[idx]);
       if(selectedIdx<0) selectedIdx=0;
 
@@ -1068,7 +1108,7 @@
       }else{
         gameBoard.classList.remove('hidden');
         playerFinishedView.classList.add('hidden');
-        renderSudoku();
+        // renderSudoku(); // This is now called by the player state listener
       }
     }
 
@@ -1147,18 +1187,28 @@
     // ===== [SUDOKU] Realtime board sync (light) =====
     let syncTimer = null;
     function scheduleBoardSync(){
-      if (isPracticeMode) return;
-      const filled = board.filter(x=>x!==0).length;
+      if (isPracticeMode || !currentGameId || !currentPlayerName) return;
+      
       if(syncTimer) clearTimeout(syncTimer);
       syncTimer = setTimeout(async ()=>{
         try{
-          await updateDoc(doc(db,"games",currentGameId), {
-            [`players.${currentPlayerName}.board`]: board.join(''),
-            [`players.${currentPlayerName}.hasMistake`]: hasMistake,
+          const filled = board.filter(x=>x!==0).length;
+          
+          // --- CHANGE: Update player's own document ---
+          const playerStateRef = doc(db, "games", currentGameId, "playerStates", currentPlayerName);
+          await updateDoc(playerStateRef, {
+            board: board.join(''),
+            hasMistake: hasMistake,
+          });
+
+          // --- CHANGE: Update filled count in main game doc for admin view ---
+          const gameRef = doc(db, "games", currentGameId);
+          await updateDoc(gameRef, {
             [`players.${currentPlayerName}.filled`]: filled
           });
+
         }catch(e){ console.warn('board sync failed', e); }
-      }, 150);
+      }, 200); // Increased delay slightly to bundle more changes
     }
 
     // ===== [SUDOKU] Try finish (with anti-cheat via transaction) =====
@@ -1187,12 +1237,10 @@
             }
         }
         
-        // This is the final puzzle. Now we show the finished view.
         if (timerInterval) clearInterval(timerInterval);
         gameBoard.classList.add('hidden');
         playerFinishedView.classList.remove('hidden');
 
-        // Update the finished view as requested
         $('#player-finished-view h2').textContent = "เยี่ยมมาก!";
         $('#player-finished-view p').textContent = "คุณไขปริศนาสำเร็จ";
         $('#practice-score-display').innerHTML = `
@@ -1200,7 +1248,6 @@
             <div class="text-4xl font-bold" style="color: var(--accent);">${score}</div>
         `;
         
-        // Wait a bit, then show the final summary screen
         setTimeout(() => {
             renderPracticeGameOverView();
         }, 2000);
@@ -1212,14 +1259,16 @@
       const gameRef = doc(db,"games",currentGameId);
       try{
         await runTransaction(db, async (tx)=>{
-          const snap = await tx.get(gameRef);
-          if(!snap.exists()) throw new Error("Game not found");
-          const data = snap.data();
+          const gameSnap = await tx.get(gameRef);
+          if(!gameSnap.exists()) throw new Error("Game not found");
+          const data = gameSnap.data();
           if(data.status !== 'playing') return;
 
           const player = (data.players||{})[currentPlayerName];
           if(!player) throw new Error("Player not found in game");
-          
+          if(player.finishTime) return; // Already finished
+
+          // --- CHANGE: Read the board state from the local board, which is synced ---
           const boardToCheck = board;
           
           let currentSolution;
@@ -1242,18 +1291,15 @@
           const updatePayload = {};
 
           if (data.gameMode.difficulty === 'mixed') {
+              const playerStateRef = doc(db, "games", currentGameId, "playerStates", currentPlayerName);
               if (currentLevel === 'easy') {
                   updatePayload[`players.${currentPlayerName}.currentLevel`] = 'medium';
-                  updatePayload[`players.${currentPlayerName}.board`] = data.puzzles.medium.puzzle.join('');
-                  updatePayload[`players.${currentPlayerName}.filled`] = data.puzzles.medium.puzzle.filter(c=>c!==0).length;
-                  updatePayload[`players.${currentPlayerName}.hasMistake`] = false;
                   updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+                  tx.set(playerStateRef, { board: data.puzzles.medium.puzzle.join(''), hasMistake: false });
               } else if (currentLevel === 'medium') {
                   updatePayload[`players.${currentPlayerName}.currentLevel`] = 'hard';
-                  updatePayload[`players.${currentPlayerName}.board`] = data.puzzles.hard.puzzle.join('');
-                  updatePayload[`players.${currentPlayerName}.filled`] = data.puzzles.hard.puzzle.filter(c=>c!==0).length;
-                  updatePayload[`players.${currentPlayerName}.hasMistake`] = false;
                   updatePayload[`players.${currentPlayerName}.score`] = increment(points);
+                  tx.set(playerStateRef, { board: data.puzzles.hard.puzzle.join(''), hasMistake: false });
               } else {
                   updatePayload[`players.${currentPlayerName}.score`] = increment(points);
                   updatePayload[`players.${currentPlayerName}.finishTime`] = serverTimestamp();
@@ -1287,7 +1333,7 @@
     $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
-      if($('#admin-password-input').value==='4'){ await createGameRoom(); }
+      if($('#admin-password-input').value==='8'){ await createGameRoom(); }
       else toast('รหัสผ่านไม่ถูกต้อง');
     });
     $('#join-game-btn').addEventListener('click', handleJoinGame);
@@ -1309,12 +1355,10 @@
 
     $('#cancel-settings-btn').addEventListener('click', () => {
         if (isHost && !currentGameId && isPracticeMode) {
-            // Came from main menu practice button, go back there
             isPracticeMode = false;
             isHost = false;
             showView('player-join');
         } else {
-            // Came from admin lobby
             showView('admin-lobby');
         }
     });
@@ -1332,6 +1376,11 @@
     
     $('#home-btn').addEventListener('click', ()=>{
       if(unsubscribeGameListener) unsubscribeGameListener();
+      // --- NEW: Clean up player state listener on home ---
+      if(unsubscribePlayerStateListener) {
+        unsubscribePlayerStateListener();
+        unsubscribePlayerStateListener = null;
+      }
       if(timerInterval) clearInterval(timerInterval);
       currentGameId=null; currentPlayerName=null;
       isHost = false;
