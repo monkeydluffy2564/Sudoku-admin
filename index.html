@@ -463,6 +463,10 @@
     // --- NEW: Listener for individual player state ---
     let unsubscribePlayerStateListener = null; 
     let timerInterval = null;
+	// ✅ เพิ่ม 2 บรรทัดนี้
+    let allPlayerStates = {};
+    let unsubscribeAllPlayerStates = null;
+	let latestGameData = {}; // ✅ เพิ่มบรรทัดนี้
     let previousGameStatus = null;
     let isPracticeMode = false;
     let practicePuzzles = null;
@@ -926,19 +930,30 @@
         if(!docSnap.exists()){
           toast("ห้องเกมถูกปิดแล้ว");
           if(unsubscribeGameListener) unsubscribeGameListener();
-          // --- NEW: Also clean up player state listener ---
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
+          if(unsubscribeAllPlayerStates) unsubscribeAllPlayerStates();
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
           isHost = false;
           document.body.classList.remove('player-view');
           showView('player-join');
           return;
         }
+
         const gameData = docSnap.data();
+        latestGameData = gameData; // ✅ อัปเดตข้อมูลล่าสุดเก็บไว้ในตัวแปรกลางเสมอ
         const currentStatus = gameData.status;
+        
+        if (previousGameStatus === 'playing' && currentStatus !== 'playing' && isHost) {
+            if (unsubscribeAllPlayerStates) {
+                unsubscribeAllPlayerStates();
+                unsubscribeAllPlayerStates = null;
+            }
+        }
+
         if(!isHost && previousGameStatus==='finished' && currentStatus==='lobby'){
           if(unsubscribeGameListener) unsubscribeGameListener();
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
+		  unsubscribePlayerStateListener = null; // ✅ เพิ่มบรรทัดนี้
           if(timerInterval) clearInterval(timerInterval);
           currentGameId=null; currentPlayerName=null;
           toast("แอดมินได้สร้างห้องใหม่แล้ว");
@@ -952,13 +967,27 @@
         if(currentStatus==='lobby'){
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
+		  unsubscribePlayerStateListener = null; // ✅ เพิ่มบรรทัดนี้
           if(isHost){ showView('admin-lobby'); renderLobbyPlayers(gameData.players); }
           else showView('player-wait');
-        }else if(currentStatus==='playing'){
+        } else if(currentStatus==='playing'){
           startOrUpdateTimer(gameData);
           showView('game');
           if (isHost) {
-            renderAdminGameView(gameData);
+            // ✅ เริ่มดักฟัง playerStates ถ้ายังไม่ได้เริ่ม
+            if (!unsubscribeAllPlayerStates) { 
+                const playerStatesRef = collection(db, "games", gameId, "playerStates");
+                unsubscribeAllPlayerStates = onSnapshot(playerStatesRef, (snapshot) => {
+                    snapshot.docs.forEach(doc => {
+                        allPlayerStates[doc.id] = doc.data();
+                    });
+                    // เมื่อข้อมูลกระดานเปลี่ยน ให้วาดหน้าจอใหม่
+                    renderAdminGameView();
+                });
+            }
+            // ✅ เมื่อข้อมูลเกมหลักเปลี่ยน ให้วาดหน้าจอใหม่
+            renderAdminGameView();
+
             if (gameData.gameMode.resultDisplayMode === 'wait') {
                 const players = Object.values(gameData.players || {});
                 if (players.length > 0 && players.every(p => p.finishTime)) {
@@ -966,11 +995,10 @@
                 }
             }
           } else {
-            // --- CHANGE: Main listener now only renders shell, player state listener renders board ---
             renderPlayerGameView(gameData); 
-            listenForPlayerState(gameId, currentPlayerName); // Start listening to my own board
+            listenForPlayerState(gameId, currentPlayerName);
           }
-        }else if(currentStatus==='finished'){
+        } else if(currentStatus==='finished'){
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           renderGameOverView(gameData);
@@ -1021,26 +1049,38 @@
       }, 500);
     }
 
-    function renderAdminGameView(gameData){
+    function renderAdminGameView(){
+      // ✅ ไม่ต้องรับ parameter แล้ว ดึงข้อมูลจากตัวแปรกลางแทน
+      const gameData = latestGameData; 
+      if (!gameData || !gameData.players) return; // ป้องกัน error หากข้อมูลยังไม่มี
+
       $('#toggle-sidebar-btn').classList.remove('hidden');
       hostControls.classList.remove('hidden');
       const players = gameData.players || {};
+
       const sorted = Object.entries(players).sort((a,b)=>{
         const A = a[1], B = b[1];
         if((A.finishTime?1:0)!==(B.finishTime?1:0)) return (B.finishTime?1:0)-(A.finishTime?1:0);
         if((A.score||0)!==(B.score||0)) return (B.score||0)-(A.score||0);
-        return (B.filled||0)-(A.filled||0);
+
+        const filledA = (allPlayerStates?.[a[0]]?.board || '').replace(/0/g, '').length;
+        const filledB = (allPlayerStates?.[b[0]]?.board || '').replace(/0/g, '').length;
+        return filledB - filledA;
       });
+
       playerList.innerHTML = sorted.map(([name,data])=>{
-        let status = `${data.filled||0}/16`;
+        const filledCount = (allPlayerStates?.[name]?.board || '').replace(/0/g, '').length;
+        let status = `${filledCount}/16`;
+
         if (data.finishTime) {
             status = 'เสร็จแล้ว';
         } else if (gameData.gameMode.difficulty === 'mixed') {
-            status = `ด่าน ${data.currentLevel || 'easy'} (${data.filled||0}/16)`;
+            status = `ด่าน ${data.currentLevel || 'easy'} (${filledCount}/16)`;
         }
         return `<div class="player-row"><span class="player-name">${name}</span><span class="player-progress">${data.score||0} คะแนน (${status})</span></div>`;
       }).join('');
 
+      // --- ส่วนที่เหลือของฟังก์ชันเหมือนเดิม ---
       let pzlData;
       if (gameData.gameMode.difficulty === 'mixed') {
           const levelOrder = ['easy', 'medium', 'hard'];
@@ -1192,7 +1232,7 @@
       if(syncTimer) clearTimeout(syncTimer);
       syncTimer = setTimeout(async ()=>{
         try{
-          const filled = board.filter(x=>x!==0).length;
+          // const filled = board.filter(x=>x!==0).length; // ไม่จำเป็นต้องนับตรงนี้แล้ว
           
           // --- CHANGE: Update player's own document ---
           const playerStateRef = doc(db, "games", currentGameId, "playerStates", currentPlayerName);
@@ -1201,14 +1241,10 @@
             hasMistake: hasMistake,
           });
 
-          // --- CHANGE: Update filled count in main game doc for admin view ---
-          const gameRef = doc(db, "games", currentGameId);
-          await updateDoc(gameRef, {
-            [`players.${currentPlayerName}.filled`]: filled
-          });
+          // ❌ ส่วนที่อัปเดต gameRef ถูกลบออกไปแล้ว
 
         }catch(e){ console.warn('board sync failed', e); }
-      }, 200); // Increased delay slightly to bundle more changes
+      }, 200);
     }
 
     // ===== [SUDOKU] Try finish (with anti-cheat via transaction) =====
@@ -1330,10 +1366,13 @@
     }
 
     // ===== Events =====
-    $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
+    // ===== Events =====
+$('#admin-icon-btn').addEventListener('click', async ()=>{
+  await createGameRoom();
+});
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
-      if($('#admin-password-input').value===''){ await createGameRoom(); }
+      if($('#admin-password-input').value==='8899'){ await createGameRoom(); }
       else toast('รหัสผ่านไม่ถูกต้อง');
     });
     $('#join-game-btn').addEventListener('click', handleJoinGame);
