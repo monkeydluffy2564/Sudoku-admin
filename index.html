@@ -580,6 +580,27 @@
       if(row===1) classes.push('bB');
       return classes.join(' ');
     }
+	
+	 // ✅ ฟังก์ชันใหม่ที่เราจะเพิ่มเข้าไป
+    function updateBoardFromState(newBoardArray) {
+      // Loop เช็คกระดานทั้ง 16 ช่อง
+      for (let i = 0; i < 16; i++) {
+        // เช็คว่าค่าในกระดานที่ใช้อยู่ (board) กับค่าใหม่ที่เพิ่งได้รับมา (newBoardArray) ต่างกันหรือไม่
+        if (board[i] !== newBoardArray[i]) {
+          // ถ้าค่าไม่ตรงกัน ให้หา DOM element ของช่องนั้นๆ
+          const cell = sudokuEl.querySelector(`[data-idx="${i}"]`);
+          if (cell) {
+            // อัปเดตตัวเลขในช่องนั้นให้เป็นค่าใหม่ (ถ้าเป็น 0 ให้แสดงเป็นช่องว่าง)
+            cell.textContent = newBoardArray[i] ? newBoardArray[i] : '';
+          }
+        }
+      }
+      // เมื่ออัปเดตหน้าจอเสร็จแล้ว ให้อัปเดตค่าในกระดานที่ใช้อยู่ให้เป็นค่าล่าสุด
+      board = newBoardArray;
+      // เรียกใช้ฟังก์ชันตรวจสอบและแสดงผล conflict/ok อีกครั้ง
+      markConflictsAll();
+      updateProgressText();
+    }
 
     function renderSudoku(){
       sudokuEl.innerHTML='';
@@ -1006,7 +1027,7 @@
       });
     }
 
-    // --- NEW FUNCTION: Listen to the player's own state document ---
+   // --- NEW FUNCTION: Listen to the player's own state document ---
     function listenForPlayerState(gameId, playerName) {
         if (unsubscribePlayerStateListener) return; // Already listening
 
@@ -1014,10 +1035,14 @@
         unsubscribePlayerStateListener = onSnapshot(playerStateRef, (docSnap) => {
             if (docSnap.exists()) {
                 const playerData = docSnap.data();
-                // Update local board from dedicated document, preventing overwrite from others
-                board = (playerData.board || '').split('').map(x => parseInt(x, 10) || 0);
+                // 1. แปลงข้อมูลกระดานที่ได้จาก Firebase ให้เป็น Array ของตัวเลข
+                const newBoardState = (playerData.board || '').split('').map(x => parseInt(x, 10) || 0);
+                
+                // 2. อัปเดตสถานะการทำผิด
                 hasMistake = !!playerData.hasMistake;
-                renderSudoku(); // Re-render the board with the latest personal state
+                
+                // 3. ✅ เรียกใช้ฟังก์ชันใหม่ที่เราสร้างขึ้นมา
+                updateBoardFromState(newBoardState); 
             }
         });
     }
@@ -1138,6 +1163,9 @@
       // The 'board' is now updated exclusively by the player state listener.
       given = (currentPuzzleData.puzzle || []).slice();
       solution = (currentPuzzleData.solution || []).slice();
+
+      // ✅ 1. เพิ่มบรรทัดนี้: คัดลอกโจทย์เริ่มต้นไปใส่ในกระดานที่ใช้แสดงผลทันที
+      board = given.slice();
       
       selectedIdx = board.findIndex((v,idx)=>!given[idx]);
       if(selectedIdx<0) selectedIdx=0;
@@ -1148,7 +1176,9 @@
       }else{
         gameBoard.classList.remove('hidden');
         playerFinishedView.classList.add('hidden');
-        // renderSudoku(); // This is now called by the player state listener
+        
+        // ✅ 2. เพิ่มบรรทัดนี้: สั่งให้วาดกระดานทันที ไม่ต้องรอ listener
+        renderSudoku(); 
       }
     }
 
@@ -1366,10 +1396,7 @@
     }
 
     // ===== Events =====
-    // ===== Events =====
-$('#admin-icon-btn').addEventListener('click', async ()=>{
-  await createGameRoom();
-});
+    $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
       if($('#admin-password-input').value==='8899'){ await createGameRoom(); }
