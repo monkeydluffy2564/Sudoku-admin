@@ -460,13 +460,13 @@
     // State
     let db, auth, userId, currentPlayerName, isHost = false, currentGameId = null;
     let unsubscribeGameListener = null;
-    // --- NEW: Listener for individual player state ---
     let unsubscribePlayerStateListener = null; 
     let timerInterval = null;
-	// ✅ เพิ่ม 2 บรรทัดนี้
-    let allPlayerStates = {};
-    let unsubscribeAllPlayerStates = null;
-	let latestGameData = {}; // ✅ เพิ่มบรรทัดนี้
+    // --- ⬇️ START: CODE UPDATED ⬇️ ---
+    let allPlayerStates = {}; // ตัวแปรเก็บ state ของผู้เล่นทุกคน (สำหรับ Admin)
+    let unsubscribeAllPlayerStates = null; // ตัวแปรสำหรับยกเลิก listener ของ Admin
+    let latestGameData = {}; // ตัวแปรเก็บข้อมูลเกมล่าสุดเสมอ
+    // --- ⬆️ END: CODE UPDATED ⬆️ ---
     let previousGameStatus = null;
     let isPracticeMode = false;
     let practicePuzzles = null;
@@ -581,7 +581,8 @@
       return classes.join(' ');
     }
 	
-	 // ✅ ฟังก์ชันใหม่ที่เราจะเพิ่มเข้าไป
+    // --- ⬇️ START: NEW FUNCTION ⬇️ ---
+    // ฟังก์ชันใหม่สำหรับอัปเดต UI ของกระดานอย่างมีประสิทธิภาพ
     function updateBoardFromState(newBoardArray) {
       // Loop เช็คกระดานทั้ง 16 ช่อง
       for (let i = 0; i < 16; i++) {
@@ -601,6 +602,7 @@
       markConflictsAll();
       updateProgressText();
     }
+    // --- ⬆️ END: NEW FUNCTION ⬆️ ---
 
     function renderSudoku(){
       sudokuEl.innerHTML='';
@@ -641,7 +643,6 @@
     function setNumber(n){
       if(selectedIdx<0 || given[selectedIdx]) return;
       
-      // --- CHANGE: Update local board immediately for responsive UI ---
       const cell = $$('.cell')[selectedIdx];
       cell.textContent = n ? n : '';
       board[selectedIdx] = n;
@@ -650,7 +651,7 @@
       
       markConflictsAll();
       updateProgressText();
-      scheduleBoardSync(); // This will now sync to the player's own document
+      scheduleBoardSync(); 
       if(isSolved()) tryFinish();
     }
 
@@ -776,12 +777,10 @@
           }
 
           for(const playerName in currentPlayers){
-            // --- CHANGE: Update main game doc with player shell ---
             updatePayload[`players.${playerName}.score`] = 0;
             updatePayload[`players.${playerName}.finishTime`] = null;
-            updatePayload[`players.${playerName}.filled`] = 0; // Start with 0 filled
+            updatePayload[`players.${playerName}.filled`] = 0;
             
-            // --- NEW: Create a separate document for each player's state ---
             const playerStateRef = doc(db, "games", currentGameId, "playerStates", playerName);
             let initialPuzzle, filledCount;
 
@@ -891,7 +890,7 @@
       const gameRef = doc(db,"games",currentGameId);
       const gameSnap = await getDoc(gameRef);
       if(gameSnap.exists() && gameSnap.data().status==='playing'){
-        await updateDoc(gameRef, { status:'finished', winner: null }); // No winner on timeout
+        await updateDoc(gameRef, { status:'finished', winner: null });
       }
     }
 
@@ -961,9 +960,11 @@
         }
 
         const gameData = docSnap.data();
-        latestGameData = gameData; // ✅ อัปเดตข้อมูลล่าสุดเก็บไว้ในตัวแปรกลางเสมอ
+        // --- ⬇️ START: CODE UPDATED ⬇️ ---
+        latestGameData = gameData; // อัปเดตข้อมูลล่าสุดเก็บไว้ในตัวแปรกลางเสมอ
         const currentStatus = gameData.status;
         
+        // เมื่อเกมจบ ให้ยกเลิกการดักฟัง state ของผู้เล่นทุกคน (สำหรับ Admin)
         if (previousGameStatus === 'playing' && currentStatus !== 'playing' && isHost) {
             if (unsubscribeAllPlayerStates) {
                 unsubscribeAllPlayerStates();
@@ -971,10 +972,11 @@
             }
         }
 
+        // เมื่อ Admin สร้างห้องใหม่ ผู้เล่นจะถูกเตะกลับหน้าแรก และต้องล้าง listener เก่า
         if(!isHost && previousGameStatus==='finished' && currentStatus==='lobby'){
           if(unsubscribeGameListener) unsubscribeGameListener();
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
-		  unsubscribePlayerStateListener = null; // ✅ เพิ่มบรรทัดนี้
+          unsubscribePlayerStateListener = null; // ตั้งเป็น null เพื่อให้สร้างใหม่ได้
           if(timerInterval) clearInterval(timerInterval);
           currentGameId=null; currentPlayerName=null;
           toast("แอดมินได้สร้างห้องใหม่แล้ว");
@@ -988,25 +990,25 @@
         if(currentStatus==='lobby'){
           if(timerInterval){ clearInterval(timerInterval); timerInterval=null; }
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
-		  unsubscribePlayerStateListener = null; // ✅ เพิ่มบรรทัดนี้
+          unsubscribePlayerStateListener = null; // ตั้งเป็น null เพื่อให้สร้างใหม่ได้
           if(isHost){ showView('admin-lobby'); renderLobbyPlayers(gameData.players); }
           else showView('player-wait');
         } else if(currentStatus==='playing'){
           startOrUpdateTimer(gameData);
           showView('game');
           if (isHost) {
-            // ✅ เริ่มดักฟัง playerStates ถ้ายังไม่ได้เริ่ม
+            // เริ่มดักฟัง playerStates ของผู้เล่นทุกคน ถ้ายังไม่ได้เริ่ม
             if (!unsubscribeAllPlayerStates) { 
                 const playerStatesRef = collection(db, "games", gameId, "playerStates");
                 unsubscribeAllPlayerStates = onSnapshot(playerStatesRef, (snapshot) => {
                     snapshot.docs.forEach(doc => {
                         allPlayerStates[doc.id] = doc.data();
                     });
-                    // เมื่อข้อมูลกระดานเปลี่ยน ให้วาดหน้าจอใหม่
+                    // เมื่อข้อมูลกระดานของผู้เล่นเปลี่ยน ให้วาดหน้าจอ Admin ใหม่
                     renderAdminGameView();
                 });
             }
-            // ✅ เมื่อข้อมูลเกมหลักเปลี่ยน ให้วาดหน้าจอใหม่
+            // เมื่อข้อมูลเกมหลัก (เช่นคะแนน) เปลี่ยน ให้วาดหน้าจอ Admin ใหม่ด้วย
             renderAdminGameView();
 
             if (gameData.gameMode.resultDisplayMode === 'wait') {
@@ -1024,25 +1026,24 @@
           if(unsubscribePlayerStateListener) unsubscribePlayerStateListener();
           renderGameOverView(gameData);
         }
+        // --- ⬆️ END: CODE UPDATED ⬆️ ---
       });
     }
 
-   // --- NEW FUNCTION: Listen to the player's own state document ---
     function listenForPlayerState(gameId, playerName) {
-        if (unsubscribePlayerStateListener) return; // Already listening
+        if (unsubscribePlayerStateListener) return;
 
         const playerStateRef = doc(db, "games", gameId, "playerStates", playerName);
         unsubscribePlayerStateListener = onSnapshot(playerStateRef, (docSnap) => {
             if (docSnap.exists()) {
                 const playerData = docSnap.data();
-                // 1. แปลงข้อมูลกระดานที่ได้จาก Firebase ให้เป็น Array ของตัวเลข
                 const newBoardState = (playerData.board || '').split('').map(x => parseInt(x, 10) || 0);
-                
-                // 2. อัปเดตสถานะการทำผิด
                 hasMistake = !!playerData.hasMistake;
                 
-                // 3. ✅ เรียกใช้ฟังก์ชันใหม่ที่เราสร้างขึ้นมา
+                // --- ⬇️ START: CODE UPDATED ⬇️ ---
+                // เรียกใช้ฟังก์ชันใหม่ที่เราสร้างขึ้นมาเพื่ออัปเดต UI อย่างมีประสิทธิภาพ
                 updateBoardFromState(newBoardState); 
+                // --- ⬆️ END: CODE UPDATED ⬆️ ---
             }
         });
     }
@@ -1074,8 +1075,9 @@
       }, 500);
     }
 
+    // --- ⬇️ START: CODE UPDATED ⬇️ ---
     function renderAdminGameView(){
-      // ✅ ไม่ต้องรับ parameter แล้ว ดึงข้อมูลจากตัวแปรกลางแทน
+      // ไม่ต้องรับ parameter แล้ว ดึงข้อมูลจากตัวแปรกลางแทน
       const gameData = latestGameData; 
       if (!gameData || !gameData.players) return; // ป้องกัน error หากข้อมูลยังไม่มี
 
@@ -1088,12 +1090,14 @@
         if((A.finishTime?1:0)!==(B.finishTime?1:0)) return (B.finishTime?1:0)-(A.finishTime?1:0);
         if((A.score||0)!==(B.score||0)) return (B.score||0)-(A.score||0);
 
+        // ดึงจำนวนช่องที่เติมแล้วจาก allPlayerStates ที่เราดักฟังไว้
         const filledA = (allPlayerStates?.[a[0]]?.board || '').replace(/0/g, '').length;
         const filledB = (allPlayerStates?.[b[0]]?.board || '').replace(/0/g, '').length;
         return filledB - filledA;
       });
 
       playerList.innerHTML = sorted.map(([name,data])=>{
+        // ดึงจำนวนช่องที่เติมแล้วจาก allPlayerStates
         const filledCount = (allPlayerStates?.[name]?.board || '').replace(/0/g, '').length;
         let status = `${filledCount}/16`;
 
@@ -1105,7 +1109,7 @@
         return `<div class="player-row"><span class="player-name">${name}</span><span class="player-progress">${data.score||0} คะแนน (${status})</span></div>`;
       }).join('');
 
-      // --- ส่วนที่เหลือของฟังก์ชันเหมือนเดิม ---
+      // ส่วนที่เหลือของฟังก์ชันเหมือนเดิม
       let pzlData;
       if (gameData.gameMode.difficulty === 'mixed') {
           const levelOrder = ['easy', 'medium', 'hard'];
@@ -1138,7 +1142,9 @@
       $('#reset-btn').classList.add('hidden');
       $('#home-btn').classList.add('hidden');
     }
+    // --- ⬆️ END: CODE UPDATED ⬆️ ---
 
+    // --- ⬇️ START: CODE UPDATED ⬇️ ---
     function renderPlayerGameView(gameData){
       $('#toggle-sidebar-btn').classList.add('hidden');
       const my = (gameData.players||{})[currentPlayerName];
@@ -1159,12 +1165,11 @@
       
       if (!currentPuzzleData) return;
 
-      // --- CHANGE: Set the 'given' and 'solution' but NOT the 'board' ---
-      // The 'board' is now updated exclusively by the player state listener.
+      // ตั้งค่าโจทย์และเฉลย แต่ไม่ต้องตั้งค่ากระดาน เพราะจะถูกอัปเดตจาก listener
       given = (currentPuzzleData.puzzle || []).slice();
       solution = (currentPuzzleData.solution || []).slice();
 
-      // ✅ 1. เพิ่มบรรทัดนี้: คัดลอกโจทย์เริ่มต้นไปใส่ในกระดานที่ใช้แสดงผลทันที
+      // คัดลอกโจทย์เริ่มต้นไปใส่ในกระดานที่ใช้แสดงผลทันที เพื่อไม่ให้จอขาวตอนเริ่ม
       board = given.slice();
       
       selectedIdx = board.findIndex((v,idx)=>!given[idx]);
@@ -1177,10 +1182,11 @@
         gameBoard.classList.remove('hidden');
         playerFinishedView.classList.add('hidden');
         
-        // ✅ 2. เพิ่มบรรทัดนี้: สั่งให้วาดกระดานทันที ไม่ต้องรอ listener
+        // สั่งให้วาดกระดานทันที ไม่ต้องรอ listener
         renderSudoku(); 
       }
     }
+    // --- ⬆️ END: CODE UPDATED ⬆️ ---
 
     function renderGameOverView(gameData){
       const winner = gameData.winner;
@@ -1254,7 +1260,6 @@
         showView('game-over');
     }
 
-    // ===== [SUDOKU] Realtime board sync (light) =====
     let syncTimer = null;
     function scheduleBoardSync(){
       if (isPracticeMode || !currentGameId || !currentPlayerName) return;
@@ -1262,33 +1267,23 @@
       if(syncTimer) clearTimeout(syncTimer);
       syncTimer = setTimeout(async ()=>{
         try{
-          // const filled = board.filter(x=>x!==0).length; // ไม่จำเป็นต้องนับตรงนี้แล้ว
-          
-          // --- CHANGE: Update player's own document ---
           const playerStateRef = doc(db, "games", currentGameId, "playerStates", currentPlayerName);
           await updateDoc(playerStateRef, {
             board: board.join(''),
             hasMistake: hasMistake,
           });
-
-          // ❌ ส่วนที่อัปเดต gameRef ถูกลบออกไปแล้ว
-
         }catch(e){ console.warn('board sync failed', e); }
       }, 200);
     }
 
-    // ===== [SUDOKU] Try finish (with anti-cheat via transaction) =====
     async function tryFinish(){
       if (isPracticeMode) {
         if (!isSolved()) return;
-
-        // Calculate score
         const timerText = gameTimerEl.textContent.replace('เวลา: ', '');
         const parts = timerText.split(':');
         const remainingSeconds = (parseInt(parts[0], 10) * 60) + parseInt(parts[1], 10);
         const score = 100 + remainingSeconds + (hasMistake ? 0 : 50);
 
-        // Handle mixed mode level progression
         if (gameSettings.difficulty === 'mixed') {
             if (currentPracticeLevel === 'easy') {
                 currentPracticeLevel = 'medium';
@@ -1332,9 +1327,8 @@
 
           const player = (data.players||{})[currentPlayerName];
           if(!player) throw new Error("Player not found in game");
-          if(player.finishTime) return; // Already finished
+          if(player.finishTime) return;
 
-          // --- CHANGE: Read the board state from the local board, which is synced ---
           const boardToCheck = board;
           
           let currentSolution;
@@ -1395,8 +1389,11 @@
       }
     }
 
-    // ===== Events =====
-    $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
+    // --- Event Listeners ---
+$('#admin-icon-btn').addEventListener('click', async () => {
+    isHost = true; 
+    await createGameRoom(); 
+});
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
       if($('#admin-password-input').value==='8899'){ await createGameRoom(); }
@@ -1406,7 +1403,7 @@
     
     $('#start-practice-btn').addEventListener('click', () => {
         isPracticeMode = true;
-        isHost = true; // To allow access to settings modal
+        isHost = true;
         showView('admin-settings');
         $('#competition-settings').classList.add('hidden');
         $('#start-game-btn').innerHTML = '<i class="fas fa-play mr-2"></i>เริ่มฝึกซ้อม';
@@ -1442,7 +1439,6 @@
     
     $('#home-btn').addEventListener('click', ()=>{
       if(unsubscribeGameListener) unsubscribeGameListener();
-      // --- NEW: Clean up player state listener on home ---
       if(unsubscribePlayerStateListener) {
         unsubscribePlayerStateListener();
         unsubscribePlayerStateListener = null;
