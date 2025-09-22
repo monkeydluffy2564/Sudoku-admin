@@ -1233,7 +1233,7 @@
     }
 
     // ===== Events =====
-    $('#admin-icon-btn').addEventListener('click', ()=>showView('admin-login'));
+    $('#admin-icon-btn').addEventListener('click', async () => { await createGameRoom(); });
     $('#admin-back-btn').addEventListener('click', ()=>showView('player-join'));
     $('#admin-login-btn').addEventListener('click', async ()=>{
       if($('#admin-password-input').value==='8989'){ await createGameRoom(); }
