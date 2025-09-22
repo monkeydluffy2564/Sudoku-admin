@@ -1294,6 +1294,31 @@
 
     $('#toggle-sidebar-btn').addEventListener('click', () => { $('.app').classList.toggle('sidebar-hidden'); });
     
+    const boardSizeSelect = $('#board-size-select');
+    const difficultySelect = $('#difficulty-select');
+    const timeLimitInput = $('#time-limit-input');
+
+    function updateDefaultTime() {
+      const size = boardSizeSelect.value;
+      const difficulty = difficultySelect.value;
+      let time = 60; // Default fallback time
+
+      const timeMap = {
+        '4': { 'easy': 45, 'medium': 60, 'hard': 90 },
+        '6': { 'easy': 120, 'medium': 180, 'hard': 240 },
+        '9': { 'easy': 360, 'medium': 600, 'hard': 900 }
+      };
+
+      if (timeMap[size] && timeMap[size][difficulty]) {
+        time = timeMap[size][difficulty];
+      }
+
+      timeLimitInput.value = time;
+    }
+
+    boardSizeSelect.addEventListener('change', updateDefaultTime);
+    difficultySelect.addEventListener('change', updateDefaultTime);
+
     window.addEventListener('beforeunload', ()=>{
       if(isHost && currentGameId){ deleteDoc(doc(db,'games',currentGameId)); }
     });
@@ -1305,4 +1330,3 @@
   </script>
 </body>
 </html>
-
