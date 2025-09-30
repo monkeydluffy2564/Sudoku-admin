@@ -482,6 +482,7 @@
     let isPracticeMode = false;
     let practicePuzzles = null;
     let currentPracticeLevel = null;
+	let isBoardInitialized = false;
 
     // --- SUDOKU STATE ---
     let N = 4;
@@ -947,6 +948,10 @@
         const gameData = docSnap.data();
         latestGameData = gameData;
         const currentStatus = gameData.status;
+		
+		        if (previousGameStatus === 'playing' && currentStatus !== 'playing') {
+            isBoardInitialized = false;
+        }
         
         if (previousGameStatus === 'playing' && currentStatus !== 'playing' && isHost) {
             if (unsubscribeAllPlayerStates) { unsubscribeAllPlayerStates(); unsubscribeAllPlayerStates = null; }
@@ -1078,33 +1083,42 @@
       $('#home-btn').classList.add('hidden');
     }
 
-    function renderPlayerGameView(gameData){
-      $('#toggle-sidebar-btn').classList.add('hidden');
-      const my = (gameData.players||{})[currentPlayerName];
-      if(!my) return;
+function renderPlayerGameView(gameData) {
+        $('#toggle-sidebar-btn').classList.add('hidden');
+        const my = (gameData.players || {})[currentPlayerName];
+        if (!my) return;
 
-      setBoardSize(gameData.gameMode.boardSize);
-      targetNumberDisplay.textContent = `Sudoku ${N}×${N}`;
+        playerScoreDisplay.textContent = `คะแนน: ${my.score || 0}`;
+        playerScoreDisplay.classList.remove('hidden');
 
-      playerScoreDisplay.textContent = `คะแนน: ${my.score || 0}`;
-      playerScoreDisplay.classList.remove('hidden');
+        // ✨ FIX: Initialize the board structure only once per game.
+        // Data will be filled by the listenForPlayerState listener.
+        if (!isBoardInitialized && gameData.status === 'playing') {
+            setBoardSize(gameData.gameMode.boardSize);
+            targetNumberDisplay.textContent = `Sudoku ${N}×${N}`;
 
-      const currentPuzzleData = gameData.sudoku;
-      if (!currentPuzzleData) return;
-      given = (currentPuzzleData.puzzle || []).slice();
-      solution = (currentPuzzleData.solution || []).slice();
-      board = given.slice();
-      selectedIdx = board.findIndex((v,idx)=>!given[idx]);
-      if(selectedIdx<0) selectedIdx=0;
+            const currentPuzzleData = gameData.sudoku;
+            if (currentPuzzleData) {
+                given = (currentPuzzleData.puzzle || []).slice();
+                solution = (currentPuzzleData.solution || []).slice();
+                
+                // Render the board structure. It might be blank for a moment
+                // before the state listener populates it with numbers.
+                renderSudoku(); 
+                isBoardInitialized = true;
+            }
+        }
 
-      if(my.finishTime){
-        gameBoard.classList.add('hidden');
-        playerFinishedView.classList.remove('hidden');
-      }else{
-        gameBoard.classList.remove('hidden');
-        playerFinishedView.classList.add('hidden');
-        renderSudoku(); 
-      }
+        // This part runs on every update to show/hide the board
+        if (my.finishTime) {
+            gameBoard.classList.add('hidden');
+            pickerEl.classList.add('hidden');
+            playerFinishedView.classList.remove('hidden');
+        } else if(gameData.status === 'playing') {
+            gameBoard.classList.remove('hidden');
+            pickerEl.classList.remove('hidden');
+            playerFinishedView.classList.add('hidden');
+        }
     }
 
     function renderGameOverView(gameData){
